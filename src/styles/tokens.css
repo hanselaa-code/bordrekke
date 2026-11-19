@@ -1,0 +1,70 @@
+:root {
+  /* Fargepalett — varmt, taktilt moderne bordspill */
+  --bg-canvas: #f6f3ec;
+  --bg-subtle: #ede7dc;
+  --bg-surface: #ffffff;
+  --bg-surface-hover: #fbf9f5;
+
+  --ink-primary: #18181b;
+  --ink-secondary: #4a4a52;
+  --ink-muted: #71717a;
+
+  --border-subtle: #e2d9c8;
+  --border-strong: #c8bca6;
+
+  /* Primæraksent: varm terrakotta/amber */
+  --accent: #d95d39;
+  --accent-hover: #c24d2b;
+  --accent-active: #a83e20;
+  --accent-soft: #fdf1ec;
+  --accent-border: #f3c4b5;
+
+  /* Fasit: smaragdgrønn og karmosinrød med høy kontrast */
+  --correct: #15803d;
+  --correct-dark: #14532d;
+  --correct-soft: #dcfce7;
+  --correct-border: #86efac;
+
+  --wrong: #b91c1c;
+  --wrong-dark: #7f1d1d;
+  --wrong-soft: #fee2e2;
+  --wrong-border: #fca5a5;
+
+  --warning: #b45309;
+  --warning-soft: #fef3c7;
+  --warning-border: #fcd34d;
+
+  /* Typografi */
+  --font-display: 'Space Grotesk', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-body: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+
+  /* Avrunding */
+  --radius-sm: 10px;
+  --radius-md: 16px;
+  --radius-lg: 24px;
+  --radius-xl: 32px;
+  --radius-pill: 9999px;
+
+  /* Taktile kortskygger */
+  --shadow-card: 0 2px 0 0 #d9cfbd, 0 8px 24px -8px rgba(24, 24, 27, 0.08);
+  --shadow-card-lg: 0 4px 0 0 #d5cab6, 0 18px 40px -12px rgba(24, 24, 27, 0.12);
+  --shadow-btn-primary: 0 4px 0 0 #9f391b, 0 10px 20px -8px rgba(217, 93, 57, 0.4);
+  --shadow-btn-dark: 0 4px 0 0 #09090b, 0 10px 20px -8px rgba(24, 24, 27, 0.25);
+  --shadow-btn-secondary: 0 3px 0 0 #d5cab6;
+
+  /* Avstander */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+
+  /* Safe areas for mobil */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}

@@ -1,0 +1,187 @@
+import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import { describe, expect, it, vi } from 'vitest';
+import type { Timestamp } from 'firebase/firestore';
+import { MOCK_ROUNDS } from '../data/mockRounds';
+import { evaluateRound } from '../engine/ranking';
+import type { UseRoomResult } from '../hooks/useRoom';
+import type { AssignedCard, PlayerDoc, RoomDoc, RoomStatus } from '../types/game';
+
+const mockUseRoom = vi.fn<() => UseRoomResult>();
+
+vi.mock('../hooks/useRoom', () => ({
+  useRoom: () => mockUseRoom(),
+}));
+
+vi.mock('../firebase/auth', () => ({
+  ensureAnonymousUser: vi.fn(),
+}));
+
+vi.mock('../engine/roomService', () => ({
+  joinRoomAsPlayer: vi.fn(),
+  lockPlayerPosition: vi.fn(),
+  unlockPlayerPosition: vi.fn(),
+  resetAllLocks: vi.fn(),
+  returnToLobby: vi.fn(),
+  revealAnswers: vi.fn(),
+  startRound: vi.fn(),
+}));
+
+import { HostView } from './HostView';
+import { PlayerView } from './PlayerView';
+
+function createMockTimestamp(ms: number): Timestamp {
+  return {
+    seconds: Math.floor(ms / 1000),
+    nanoseconds: (ms % 1000) * 1_000_000,
+    toMillis: () => ms,
+    toDate: () => new Date(ms),
+    isEqual: (other: Timestamp) => other.toMillis() === ms,
+    valueOf: () => String(ms),
+    toJSON: () => ({
+      seconds: Math.floor(ms / 1000),
+      nanoseconds: (ms % 1000) * 1_000_000,
+      type: 'timestamp',
+    }),
+  } as Timestamp;
+}
+
+function buildRoomState(
+  status: RoomStatus,
+  cards: AssignedCard[],
+  options: { title?: string; direction?: string; locked?: boolean } = {},
+): UseRoomResult {
+  const players: PlayerDoc[] = cards.map((card, index) => ({
+    uid: `player-${index + 1}`,
+    joinedAt: createMockTimestamp(1000 + index * 100),
+    connected: true,
+    card,
+    lockedAt: options.locked ? createMockTimestamp(2000 + index * 100) : null,
+    lockedClientAt: null,
+  }));
+
+  const room: RoomDoc = {
+    id: 'ABC234',
+    hostUid: 'host-1',
+    status,
+    roundNumber: 1,
+    activeRoundId: 'historical-events-1',
+    activeRoundTitle: options.title ?? 'Historiske begivenheter',
+    activeRoundDirection: options.direction ?? 'Eldst → Nyest',
+    createdAt: createMockTimestamp(500),
+    updatedAt: createMockTimestamp(1500),
+  };
+
+  return {
+    room,
+    players,
+    evaluation: evaluateRound(players),
+    loading: false,
+    error: null,
+  };
+}
+
+function renderPlayer(initialPlayerUid: string): string {
+  return renderToStaticMarkup(
+    <MemoryRouter initialEntries={['/play/ABC234']}>
+      <Routes>
+        <Route
+          path="/play/:roomId"
+          element={<PlayerView initialPlayerUid={initialPlayerUid} />}
+        />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+function renderHost(): string {
+  return renderToStaticMarkup(
+    <MemoryRouter initialEntries={['/host/ABC234']}>
+      <Routes>
+        <Route path="/host/:roomId" element={<HostView />} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe('CardViews SSR rendering (PlayerView & HostView)', () => {
+  const moonCard = MOCK_ROUNDS[0].cards[8]; // Månelandingen (1969)
+  const berlinCard = MOCK_ROUNDS[0].cards[9]; // Berlinmurens fall (1989)
+  const placeholderCard = MOCK_ROUNDS[1].cards[0]; // Kort A (10)
+
+  it('PlayerView (playing, bildekort): viser bilde og kort overleggstekst, men INGEN årstall', () => {
+    mockUseRoom.mockReturnValue(buildRoomState('playing', [moonCard, berlinCard]));
+
+    const html = renderPlayer('player-1');
+
+    expect(html).toContain('player-card-big--image');
+    expect(html).toContain('<img');
+    expect(html).toContain(`src="${moonCard.imageUrl}"`);
+    expect(html).toContain(moonCard.label);
+    expect(html).toContain(moonCard.subtitle);
+    expect(html).not.toContain(moonCard.answerDisplay);
+    expect(html).not.toContain(String(moonCard.answerValue));
+  });
+
+  it('PlayerView (playing, plassholderkort uten bilde): rendrer tekstkort uten <img>', () => {
+    mockUseRoom.mockReturnValue(
+      buildRoomState('playing', [placeholderCard], {
+        title: 'Plassholder-runde 1',
+        direction: 'Lavest → Høyest',
+      }),
+    );
+
+    const html = renderPlayer('player-1');
+
+    expect(html).toContain('player-card-big');
+    expect(html).not.toContain('player-card-big--image');
+    expect(html).not.toContain('<img');
+    expect(html).toContain(placeholderCard.label);
+    expect(html).not.toContain(placeholderCard.answerDisplay);
+  });
+
+  it('PlayerView (revealed, bildekort): viser miniatyrbilde, hendelsestekst og fasit-årstall', () => {
+    mockUseRoom.mockReturnValue(
+      buildRoomState('revealed', [moonCard, berlinCard], { locked: true }),
+    );
+
+    const html = renderPlayer('player-1');
+
+    expect(html).toContain('reveal-card-thumb');
+    expect(html).toContain(`src="${moonCard.imageUrl}"`);
+    expect(html).toContain(moonCard.label);
+    expect(html).toContain(moonCard.answerDisplay);
+  });
+
+  it('HostView (playing, bildekort): viser miniatyrbilder, titler og dynamisk retning, men INGEN årstall', () => {
+    mockUseRoom.mockReturnValue(buildRoomState('playing', [moonCard, berlinCard]));
+
+    const html = renderHost();
+
+    expect(html).toContain('slot-thumb');
+    expect(html).toContain(`src="${moonCard.imageUrl}"`);
+    expect(html).toContain(`src="${berlinCard.imageUrl}"`);
+    expect(html).toContain(moonCard.label);
+    expect(html).toContain(berlinCard.label);
+    expect(html).toContain('Eldst → Nyest');
+    expect(html).not.toContain('fra lavest til høyest');
+    expect(html).not.toContain(moonCard.answerDisplay);
+    expect(html).not.toContain(berlinCard.answerDisplay);
+  });
+
+  it('HostView (revealed, bildekort): viser miniatyrbilder, hendelsestitler og fasit-årstall', () => {
+    mockUseRoom.mockReturnValue(
+      buildRoomState('revealed', [moonCard, berlinCard], { locked: true }),
+    );
+
+    const html = renderHost();
+
+    expect(html).toContain('slot-thumb');
+    expect(html).toContain(`src="${moonCard.imageUrl}"`);
+    expect(html).toContain(`src="${berlinCard.imageUrl}"`);
+    expect(html).toContain(moonCard.label);
+    expect(html).toContain(berlinCard.label);
+    expect(html).toContain(moonCard.answerDisplay);
+    expect(html).toContain(berlinCard.answerDisplay);
+  });
+});

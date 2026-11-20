@@ -8,6 +8,7 @@ import {
 } from 'firebase/firestore';
 import { evaluateRound } from '../engine/ranking';
 import { subscribeP2PRoom } from '../engine/p2pBackend';
+import { ensureAnonymousUser } from '../firebase/auth';
 import { isFirebaseConfigured, requireFirestore } from '../firebase/config';
 import type {
   AssignedCard,
@@ -137,96 +138,124 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
       });
     }
 
-    const db = requireFirestore();
-    const roomRef = doc(db, 'rooms', normalizedRoomId);
-    const playersRef = collection(db, 'rooms', normalizedRoomId, 'players');
+    let cancelled = false;
+    let unsubscribeRoom: (() => void) | null = null;
+    let unsubscribePlayers: (() => void) | null = null;
 
-    const unsubscribeRoom = onSnapshot(
-      roomRef,
-      (snapshot) => {
-        setSnapshotState((prev) => {
-          const base =
-            prev && prev.roomId === normalizedRoomId
-              ? prev
-              : {
-                  roomId: normalizedRoomId,
+    void ensureAnonymousUser()
+      .then(() => {
+        if (cancelled) {
+          return;
+        }
+
+        const db = requireFirestore();
+        const roomRef = doc(db, 'rooms', normalizedRoomId);
+        const playersRef = collection(db, 'rooms', normalizedRoomId, 'players');
+
+        unsubscribeRoom = onSnapshot(
+          roomRef,
+          (snapshot) => {
+            setSnapshotState((prev) => {
+              const base =
+                prev && prev.roomId === normalizedRoomId
+                  ? prev
+                  : {
+                      roomId: normalizedRoomId,
+                      room: null,
+                      players: EMPTY_PLAYERS,
+                      roomLoaded: false,
+                      playersLoaded: false,
+                      error: null,
+                    };
+
+              if (!snapshot.exists()) {
+                return {
+                  ...base,
                   room: null,
-                  players: EMPTY_PLAYERS,
-                  roomLoaded: false,
-                  playersLoaded: false,
-                  error: null,
+                  roomLoaded: true,
+                  error: `Fant ikke rommet «${normalizedRoomId}».`,
                 };
+              }
 
-          if (!snapshot.exists()) {
-            return {
-              ...base,
+              return {
+                ...base,
+                room: parseRoomDoc(snapshot.id, snapshot.data()),
+                roomLoaded: true,
+                error: null,
+              };
+            });
+          },
+          (snapshotError) => {
+            setSnapshotState((prev) => ({
+              roomId: normalizedRoomId,
               room: null,
+              players: prev && prev.roomId === normalizedRoomId ? prev.players : EMPTY_PLAYERS,
               roomLoaded: true,
-              error: `Fant ikke rommet «${normalizedRoomId}».`,
-            };
-          }
+              playersLoaded: prev && prev.roomId === normalizedRoomId ? prev.playersLoaded : true,
+              error: snapshotError.message || 'Kunne ikke hente romdata fra Firestore.',
+            }));
+          },
+        );
 
-          return {
-            ...base,
-            room: parseRoomDoc(snapshot.id, snapshot.data()),
-            roomLoaded: true,
-            error: null,
-          };
-        });
-      },
-      (snapshotError) => {
-        setSnapshotState((prev) => ({
+        unsubscribePlayers = onSnapshot(
+          playersRef,
+          (snapshot) => {
+            const nextPlayers = snapshot.docs.map((playerDoc) =>
+              parsePlayerDoc(playerDoc.id, playerDoc.data()),
+            );
+            setSnapshotState((prev) => {
+              const base =
+                prev && prev.roomId === normalizedRoomId
+                  ? prev
+                  : {
+                      roomId: normalizedRoomId,
+                      room: null,
+                      players: EMPTY_PLAYERS,
+                      roomLoaded: false,
+                      playersLoaded: false,
+                      error: null,
+                    };
+
+              return {
+                ...base,
+                players: nextPlayers,
+                playersLoaded: true,
+              };
+            });
+          },
+          (snapshotError) => {
+            setSnapshotState((prev) => ({
+              roomId: normalizedRoomId,
+              room: prev && prev.roomId === normalizedRoomId ? prev.room : null,
+              players: prev && prev.roomId === normalizedRoomId ? prev.players : EMPTY_PLAYERS,
+              roomLoaded: prev && prev.roomId === normalizedRoomId ? prev.roomLoaded : true,
+              playersLoaded: true,
+              error: snapshotError.message || 'Kunne ikke hente spillerliste fra Firestore.',
+            }));
+          },
+        );
+      })
+      .catch((authError) => {
+        if (cancelled) {
+          return;
+        }
+        setSnapshotState({
           roomId: normalizedRoomId,
           room: null,
-          players: prev && prev.roomId === normalizedRoomId ? prev.players : EMPTY_PLAYERS,
+          players: EMPTY_PLAYERS,
           roomLoaded: true,
-          playersLoaded: prev && prev.roomId === normalizedRoomId ? prev.playersLoaded : true,
-          error: snapshotError.message || 'Kunne ikke hente romdata fra Firestore.',
-        }));
-      },
-    );
-
-    const unsubscribePlayers = onSnapshot(
-      playersRef,
-      (snapshot) => {
-        const nextPlayers = snapshot.docs.map((playerDoc) =>
-          parsePlayerDoc(playerDoc.id, playerDoc.data()),
-        );
-        setSnapshotState((prev) => {
-          const base =
-            prev && prev.roomId === normalizedRoomId
-              ? prev
-              : {
-                  roomId: normalizedRoomId,
-                  room: null,
-                  players: EMPTY_PLAYERS,
-                  roomLoaded: false,
-                  playersLoaded: false,
-                  error: null,
-                };
-
-          return {
-            ...base,
-            players: nextPlayers,
-            playersLoaded: true,
-          };
-        });
-      },
-      (snapshotError) => {
-        setSnapshotState((prev) => ({
-          roomId: normalizedRoomId,
-          room: prev && prev.roomId === normalizedRoomId ? prev.room : null,
-          players: prev && prev.roomId === normalizedRoomId ? prev.players : EMPTY_PLAYERS,
-          roomLoaded: prev && prev.roomId === normalizedRoomId ? prev.roomLoaded : true,
           playersLoaded: true,
-          error: snapshotError.message || 'Kunne ikke hente spillerliste fra Firestore.',
-        }));
-      },
-    );
+          error:
+            authError instanceof Error
+              ? authError.message
+              : 'Kunne ikke koble til spillrommet.',
+        });
+      });
 
     return () => {
-      unsubscribeRoom();
-      unsubscribePlayers();
+      cancelled = true;
+      unsubscribeRoom?.();
+      unsubscribePlayers?.();
     };
   }, [normalizedRoomId]);
 

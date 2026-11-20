@@ -431,3 +431,43 @@ describe('Høyest mulig levealder (MOCK_ROUNDS[8])', () => {
     }
   });
 });
+
+describe('Kalorier per 100 g matvare (MOCK_ROUNDS[9])', () => {
+  const caloriesRound = MOCK_ROUNDS[9];
+
+  it('ligger som runde 10 med 10 matvarer og retning Færrest → Flest', () => {
+    expect(caloriesRound.id).toBe('food-calories-1');
+    expect(caloriesRound.title).toBe('Kalorier per 100 g matvare');
+    expect(caloriesRound.directionLabel).toBe('Færrest → Flest');
+    expect(caloriesRound.cards).toHaveLength(10);
+  });
+
+  it('har unike kcal-verdier og lekkasjesikrede felt uten sifre', () => {
+    const values = caloriesRound.cards.map((card) => card.answerValue);
+    expect(new Set(values).size).toBe(10);
+    expect(new Set(caloriesRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of caloriesRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.answerDisplay).toBe(`${card.answerValue} kcal`);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/calories\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/calories/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of caloriesRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});

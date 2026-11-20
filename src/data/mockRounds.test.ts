@@ -511,3 +511,43 @@ describe('Flest OL-gull (MOCK_ROUNDS[10])', () => {
     }
   });
 });
+
+describe('Mest solgte album gjennom tidene (MOCK_ROUNDS[11])', () => {
+  const albumsRound = MOCK_ROUNDS[11];
+
+  it('ligger som runde 12 med 10 album og retning Færrest → Flest', () => {
+    expect(albumsRound.id).toBe('best-selling-albums-1');
+    expect(albumsRound.title).toBe('Mest solgte album gjennom tidene');
+    expect(albumsRound.directionLabel).toBe('Færrest → Flest');
+    expect(albumsRound.cards).toHaveLength(10);
+  });
+
+  it('har unike salgstall og lekkasjesikrede felt uten sifre', () => {
+    const sales = albumsRound.cards.map((card) => card.answerValue);
+    expect(new Set(sales).size).toBe(10);
+    expect(new Set(albumsRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of albumsRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.answerDisplay).toBe(`ca. ${card.answerValue} mill.`);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/albums\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/albums/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of albumsRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});

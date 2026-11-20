@@ -107,7 +107,7 @@ function renderHost(): string {
 describe('CardViews SSR rendering (PlayerView & HostView)', () => {
   const moonCard = MOCK_ROUNDS[0].cards[8]; // Månelandingen (1969)
   const berlinCard = MOCK_ROUNDS[0].cards[9]; // Berlinmurens fall (1989)
-  const placeholderCard = MOCK_ROUNDS[1].cards[0]; // Kort A (10)
+  const placeholderCard = MOCK_ROUNDS[2].cards[0]; // Kort A (plassholder uten bilde)
 
   it('PlayerView (playing, bildekort): viser bilde og kort overleggstekst, men INGEN årstall', () => {
     mockUseRoom.mockReturnValue(buildRoomState('playing', [moonCard, berlinCard]));

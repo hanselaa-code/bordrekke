@@ -128,3 +128,42 @@ describe('Historiske begivenheter (MOCK_ROUNDS[0])', () => {
     }
   });
 });
+
+describe('Kjendiser etter alder (MOCK_ROUNDS[1])', () => {
+  const celebrityRound = MOCK_ROUNDS[1];
+
+  it('ligger som runde 2 med 10 kjendiskort og retning Eldst → Yngst', () => {
+    expect(celebrityRound.id).toBe('celebrity-ages-1');
+    expect(celebrityRound.title).toBe('Kjendiser etter alder');
+    expect(celebrityRound.directionLabel).toBe('Eldst → Yngst');
+    expect(celebrityRound.cards).toHaveLength(10);
+  });
+
+  it('har unike fødselsår og lekkasjesikrede felt uten sifre i synlig tekst', () => {
+    const years = celebrityRound.cards.map((card) => card.answerValue);
+    expect(new Set(years).size).toBe(10);
+    expect(new Set(celebrityRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of celebrityRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerDisplay).toBe(`Født ${card.answerValue}`);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/celebrities\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/celebrities/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of celebrityRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});

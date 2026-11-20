@@ -18,6 +18,7 @@ import { isFirebaseConfigured } from '../firebase/config';
 import { ensureP2PHostRoom } from '../engine/p2pBackend';
 import {
   resetAllLocks,
+  resetGame,
   returnToLobby,
   revealAnswers,
   startRound,
@@ -113,6 +114,11 @@ export function HostView() {
   async function handleReturnToLobby() {
     if (!room) return;
     await runAction('lobby', () => returnToLobby(room.id, players));
+  }
+
+  async function handleResetGame() {
+    if (!room) return;
+    await runAction('reset-game', () => resetGame(room.id, players));
   }
 
   const playersWithCards = useMemo(
@@ -279,9 +285,26 @@ export function HostView() {
                   <span>
                     {actionBusy === 'start'
                       ? 'Deler ut kort…'
-                      : 'Start runde / Vis spørsmål'}
+                      : room.roundNumber > 0
+                        ? `Start runde ${room.roundNumber + 1}`
+                        : 'Start runde / Vis spørsmål'}
                   </span>
                 </button>
+                {room.roundNumber > 0 && (
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--full"
+                    onClick={handleResetGame}
+                    disabled={actionBusy !== null}
+                  >
+                    <RotateCcw size={18} aria-hidden="true" />
+                    <span>
+                      {actionBusy === 'reset-game'
+                        ? 'Nullstiller…'
+                        : 'Nullstill spill (start fra runde 1)'}
+                    </span>
+                  </button>
+                )}
                 {players.length < 2 && (
                   <p
                     style={{
@@ -369,6 +392,26 @@ export function HostView() {
                 >
                   <RotateCcw size={18} aria-hidden="true" />
                   <span>Nullstill plasseringer</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--lg"
+                  onClick={handleStartOrNextRound}
+                  disabled={players.length < 2 || actionBusy !== null}
+                >
+                  <SkipForward size={18} aria-hidden="true" />
+                  <span>{actionBusy === 'start' ? 'Starter…' : 'Ny runde'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--lg"
+                  onClick={handleResetGame}
+                  disabled={actionBusy !== null}
+                >
+                  <RotateCcw size={18} aria-hidden="true" />
+                  <span>{actionBusy === 'reset-game' ? 'Nullstiller…' : 'Nullstill spill'}</span>
                 </button>
               </div>
             </div>
@@ -475,6 +518,18 @@ export function HostView() {
                 disabled={actionBusy !== null}
               >
                 <span>Tilbake til lobby</span>
+              </button>
+
+              <button
+                type="button"
+                className="btn btn--secondary btn--lg"
+                onClick={handleResetGame}
+                disabled={actionBusy !== null}
+              >
+                <RotateCcw size={18} aria-hidden="true" />
+                <span>
+                  {actionBusy === 'reset-game' ? 'Nullstiller…' : 'Nytt spill (Runde 1)'}
+                </span>
               </button>
             </div>
 

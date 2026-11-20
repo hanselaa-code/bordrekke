@@ -14,6 +14,7 @@ import {
   p2pJoinRoomAsPlayer,
   p2pLockPlayerPosition,
   p2pResetAllLocks,
+  p2pResetGame,
   p2pReturnToLobby,
   p2pRevealAnswers,
   p2pStartRound,
@@ -281,6 +282,43 @@ export async function returnToLobby(
   const roomRef = doc(db, 'rooms', normalizedRoomId);
   batch.update(roomRef, {
     status: 'lobby',
+    activeRoundId: null,
+    activeRoundTitle: null,
+    activeRoundDirection: null,
+    updatedAt: serverTimestamp(),
+  });
+
+  players.forEach((player) => {
+    const playerRef = doc(db, 'rooms', normalizedRoomId, 'players', player.uid);
+    batch.update(playerRef, {
+      card: null,
+      lockedAt: null,
+      lockedClientAt: null,
+    });
+  });
+
+  await batch.commit();
+}
+
+/**
+ * Nullstiller spillet tilbake til lobby og runde 0, og fjerner kort og låsestatus fra alle spillere.
+ */
+export async function resetGame(
+  roomId: string,
+  players: readonly PlayerDoc[],
+): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pResetGame(roomId);
+  }
+
+  const normalizedRoomId = normalizeRoomId(roomId);
+  const db = requireFirestore();
+  const batch = writeBatch(db);
+
+  const roomRef = doc(db, 'rooms', normalizedRoomId);
+  batch.update(roomRef, {
+    status: 'lobby',
+    roundNumber: 0,
     activeRoundId: null,
     activeRoundTitle: null,
     activeRoundDirection: null,

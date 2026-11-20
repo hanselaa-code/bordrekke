@@ -696,6 +696,32 @@ export async function p2pReturnToLobby(roomId: string): Promise<void> {
   broadcastHostState(activeHost);
 }
 
+export async function p2pResetGame(roomId: string): Promise<void> {
+  const normalizedRoomId = normalizeRoomId(roomId);
+  if (!activeHost || activeHost.roomId !== normalizedRoomId) {
+    throw new Error('Du er ikke aktiv vert for dette rommet.');
+  }
+
+  activeHost.room = {
+    ...activeHost.room,
+    status: 'lobby',
+    roundNumber: 0,
+    activeRoundId: null,
+    activeRoundTitle: null,
+    activeRoundDirection: null,
+    updatedAt: makeTimestamp(Date.now()),
+  };
+  activeHost.players.forEach((player, uid) => {
+    activeHost?.players.set(uid, {
+      ...player,
+      card: null,
+      lockedAt: null,
+      lockedClientAt: null,
+    });
+  });
+  broadcastHostState(activeHost);
+}
+
 /**
  * Abonnerer på sanntidsendringer for et P2P-rom (fungerer både for Host og Mobil).
  */

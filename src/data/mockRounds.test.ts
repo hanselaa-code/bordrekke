@@ -391,3 +391,43 @@ describe('Matvarer og holdbarhet (MOCK_ROUNDS[7])', () => {
     }
   });
 });
+
+describe('Høyest mulig levealder (MOCK_ROUNDS[8])', () => {
+  const organismRound = MOCK_ROUNDS[8];
+
+  it('ligger som runde 9 med 10 organismer inkludert menneske og retning Kortest → Lengst', () => {
+    expect(organismRound.id).toBe('organism-lifespan-1');
+    expect(organismRound.title).toBe('Høyest mulig levealder');
+    expect(organismRound.directionLabel).toBe('Kortest → Lengst');
+    expect(organismRound.cards).toHaveLength(10);
+    expect(organismRound.cards.some((card) => card.label === 'Menneske')).toBe(true);
+  });
+
+  it('har unike levealdre og lekkasjesikrede felt uten sifre', () => {
+    const values = organismRound.cards.map((card) => card.answerValue);
+    expect(new Set(values).size).toBe(10);
+    expect(new Set(organismRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of organismRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/organisms\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/organisms/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of organismRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});

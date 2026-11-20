@@ -35,6 +35,7 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
   );
   const [joinError, setJoinError] = useState<string | null>(null);
   const [lockBusy, setLockBusy] = useState(false);
+  const [revealedRoundKey, setRevealedRoundKey] = useState<string | null>(null);
 
   const joining = Boolean(normalizedRoomId) && joinedRoomId !== normalizedRoomId && !joinError;
 
@@ -77,6 +78,49 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
   const myPlayer = myEntry?.player ?? players.find((p) => p.uid === playerUid);
   const myCard = myPlayer?.card ?? null;
 
+  const isRoomRevealed = !loading && room !== null && room.status === 'revealed';
+  const currentRevealKey = room ? `${room.id}:${room.roundNumber}` : null;
+  const revealDelayMs = !isRoomRevealed || myCard === null
+    ? 0
+    : myEntry?.lockedRank !== null && myEntry?.lockedRank !== undefined
+      ? Math.max(0, (myEntry.lockedRank - 1) * 1000)
+      : evaluation.lockedCount * 1000;
+
+  const isMyRevealReady =
+    isRoomRevealed &&
+    (revealDelayMs === 0 || (currentRevealKey !== null && revealedRoundKey === currentRevealKey));
+
+  // Sekvensiell avsløring på rekke og rad (1 sekund mellom hver telefon: Plass 1 → 2 → 3 → …)
+  useEffect(() => {
+    if (!isRoomRevealed || !currentRevealKey) {
+      return;
+    }
+
+    if (revealDelayMs === 0) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setRevealedRoundKey(currentRevealKey);
+    }, revealDelayMs);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isRoomRevealed, currentRevealKey, revealDelayMs]);
+
+  // Diskret vibrasjon når akkurat denne telefonen lyser opp
+  useEffect(() => {
+    if (!isMyRevealReady || myCard === null) return;
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      try {
+        navigator.vibrate(myEntry?.isCorrect === true ? 60 : [70, 45, 70]);
+      } catch {
+        // Ignorer hvis nettleseren blokkerer vibrasjon
+      }
+    }
+  }, [isMyRevealReady, currentRevealKey, myCard, myEntry?.isCorrect]);
+
   async function handleLock() {
     if (!room || !playerUid || lockBusy) return;
     setLockBusy(true);
@@ -105,28 +149,33 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
     }
   }
 
-  // Fullskjerms grønn/rød fasit-visning når verten avslører fasit
+  // Fullskjerms grønn/rød fasit-visning når verten avslører fasit (på rekke og rad med 1 sek mellomrom)
   if (!loading && room && room.status === 'revealed') {
     const hasCard = myCard !== null;
-    const isCorrect = myEntry?.isCorrect === true;
-    const isWrong = hasCard && myEntry?.isCorrect !== true;
+    const isCorrect = isMyRevealReady && myEntry?.isCorrect === true;
+    const isWrong = isMyRevealReady && hasCard && myEntry?.isCorrect !== true;
 
-    const screenModifier = isCorrect
-      ? 'player-reveal-screen--correct'
-      : isWrong
-        ? 'player-reveal-screen--wrong'
-        : 'player-reveal-screen--neutral';
-
-    const verdictText = !hasCard
-      ? 'RUNDE FERDIG'
+    const screenModifier = !isMyRevealReady
+      ? 'player-reveal-screen--pending'
       : isCorrect
-        ? 'RIKTIG PLASS!'
-        : myEntry?.lockedRank === null
-          ? 'IKKE LÅST'
-          : 'FEIL PLASS';
+        ? 'player-reveal-screen--correct'
+        : isWrong
+          ? 'player-reveal-screen--wrong'
+          : 'player-reveal-screen--neutral';
+
+    const verdictText = !isMyRevealReady
+      ? 'AVSLØRER…'
+      : !hasCard
+        ? 'RUNDE FERDIG'
+        : isCorrect
+          ? 'RIKTIG PLASS!'
+          : myEntry?.lockedRank === null
+            ? 'IKKE LÅST'
+            : 'FEIL PLASS';
 
     return (
       <main
+        key={isMyRevealReady ? 'revealed-active' : 'revealed-pending'}
         className={`player-reveal-screen ${screenModifier}`}
         aria-live="assertive"
       >
@@ -140,30 +189,33 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
         </header>
 
         <section className="reveal-center">
-          {isCorrect ? (
-            <CheckCircle2 size={72} strokeWidth={2.2} aria-hidden="true" />
-          ) : isWrong ? (
-            <XCircle size={72} strokeWidth={2.2} aria-hidden="true" />
-          ) : (
-            <Hourglass size={64} strokeWidth={2} aria-hidden="true" />
-          )}
-
-          <h1 className="reveal-verdict">{verdictText}</h1>
+          <div className="reveal-header-block">
+            {isMyRevealReady ? (
+              isCorrect ? (
+                <CheckCircle2 size={56} strokeWidth={2.3} aria-hidden="true" />
+              ) : isWrong ? (
+                <XCircle size={56} strokeWidth={2.3} aria-hidden="true" />
+              ) : (
+                <Hourglass size={52} strokeWidth={2} aria-hidden="true" />
+              )
+            ) : (
+              <Hourglass
+                size={48}
+                strokeWidth={2}
+                className="reveal-pending-pulse"
+                aria-hidden="true"
+              />
+            )}
+            <h1 className="reveal-verdict">{verdictText}</h1>
+          </div>
 
           {hasCard ? (
             <>
-              <div className="reveal-card-box">
-                <span
-                  style={{
-                    fontSize: '0.875rem',
-                    textTransform: 'uppercase',
-                    letterSpacing: '0.1em',
-                    opacity: 0.85,
-                    fontWeight: 600,
-                  }}
-                >
-                  Ditt kort
-                </span>
+              <div
+                className={`reveal-card-stage ${
+                  myCard.imageUrl ? 'reveal-card-stage--image' : ''
+                }`}
+              >
                 {myCard.imageUrl && (
                   <img
                     className="reveal-card-thumb"
@@ -172,27 +224,52 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
                     draggable={false}
                   />
                 )}
-                <div className="reveal-card-name">{myCard.label}</div>
-                <div className="reveal-answer-value tabular">
-                  {myCard.answerDisplay}
+
+                {isMyRevealReady ? (
+                  <div
+                    className={`reveal-card-answer-overlay ${
+                      isCorrect
+                        ? 'reveal-card-answer-overlay--correct'
+                        : 'reveal-card-answer-overlay--wrong'
+                    }`}
+                  >
+                    <span className="reveal-card-answer-eyebrow">Fasit</span>
+                    <div className="reveal-answer-value tabular">
+                      {myCard.answerDisplay}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="reveal-card-pending-overlay">
+                    <span className="reveal-pending-pill tabular">
+                      {myEntry?.lockedRank !== null && myEntry?.lockedRank !== undefined
+                        ? `Plass #${myEntry.lockedRank} · Vent…`
+                        : 'Venter på tur…'}
+                    </span>
+                  </div>
+                )}
+
+                <div className="reveal-card-caption">
+                  <div className="reveal-card-name">{myCard.label}</div>
                 </div>
               </div>
 
-              <div className="reveal-ranks-pill tabular">
-                <span>
-                  Din plass:{' '}
-                  {myEntry?.lockedRank !== null && myEntry?.lockedRank !== undefined
-                    ? `#${myEntry.lockedRank}`
-                    : '–'}
-                </span>
-                <span aria-hidden="true">·</span>
-                <span>
-                  Fasit:{' '}
-                  {myEntry?.correctRank !== null && myEntry?.correctRank !== undefined
-                    ? `#${myEntry.correctRank}`
-                    : '–'}
-                </span>
-              </div>
+              {isMyRevealReady && (
+                <div className="reveal-ranks-pill tabular">
+                  <span>
+                    Din plass:{' '}
+                    {myEntry?.lockedRank !== null && myEntry?.lockedRank !== undefined
+                      ? `#${myEntry.lockedRank}`
+                      : '–'}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    Fasit:{' '}
+                    {myEntry?.correctRank !== null && myEntry?.correctRank !== undefined
+                      ? `#${myEntry.correctRank}`
+                      : '–'}
+                  </span>
+                </div>
+              )}
             </>
           ) : (
             <p style={{ fontSize: '1.125rem', opacity: 0.92 }}>
@@ -202,7 +279,9 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
         </section>
 
         <footer style={{ opacity: 0.85, fontSize: '0.9375rem', fontWeight: 500 }}>
-          Venter på at verten starter neste runde…
+          {isMyRevealReady
+            ? 'Venter på at verten starter neste runde…'
+            : 'Telefonene avsløres én etter én langs bordet…'}
         </footer>
       </main>
     );

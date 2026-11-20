@@ -146,17 +146,22 @@ describe('CardViews SSR rendering (PlayerView & HostView)', () => {
     expect(html).not.toContain(placeholderCard.answerDisplay);
   });
 
-  it('PlayerView (revealed, bildekort): viser miniatyrbilde, hendelsestekst og fasit-årstall', () => {
+  it('PlayerView (revealed, bildekort): viser fasit oppå kortet for Plass 1 og venter for Plass 2', () => {
     mockUseRoom.mockReturnValue(
       buildRoomState('revealed', [moonCard, berlinCard], { locked: true }),
     );
 
-    const html = renderPlayer('player-1');
+    const htmlFirst = renderPlayer('player-1');
+    expect(htmlFirst).toContain('reveal-card-thumb');
+    expect(htmlFirst).toContain('reveal-card-answer-overlay');
+    expect(htmlFirst).toContain(`src="${moonCard.imageUrl}"`);
+    expect(htmlFirst).toContain(moonCard.label);
+    expect(htmlFirst).toContain(moonCard.answerDisplay);
 
-    expect(html).toContain('reveal-card-thumb');
-    expect(html).toContain(`src="${moonCard.imageUrl}"`);
-    expect(html).toContain(moonCard.label);
-    expect(html).toContain(moonCard.answerDisplay);
+    const htmlSecond = renderPlayer('player-2');
+    expect(htmlSecond).toContain('player-reveal-screen--pending');
+    expect(htmlSecond).toContain('Plass #2 · Vent…');
+    expect(htmlSecond).not.toContain(berlinCard.answerDisplay);
   });
 
   it('HostView (playing, bildekort): viser miniatyrbilder, titler og dynamisk retning, men INGEN årstall', () => {

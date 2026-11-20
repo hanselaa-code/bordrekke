@@ -429,7 +429,9 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
                     {room.activeRoundTitle ?? 'Ditt kort'}
                   </span>
                   <h1 className="player-card-label">{myCard.label}</h1>
-                  <p className="player-card-subtitle">{myCard.subtitle}</p>
+                  {myCard.subtitle.trim().length > 0 && (
+                    <p className="player-card-subtitle">{myCard.subtitle}</p>
+                  )}
                 </article>
               )}
 

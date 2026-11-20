@@ -490,6 +490,83 @@ export const MOCK_ROUNDS: MockRound[] = [
       },
     ],
   },
+  {
+    id: 'norwegian-slang-1',
+    title: 'Norske slangord og uttrykk',
+    directionLabel: 'Eldst → Nyest',
+    cards: [
+      {
+        id: 'slang-hippie',
+        label: 'Hippie',
+        subtitle: '',
+        answerValue: 1967,
+        answerDisplay: '1967',
+      },
+      {
+        id: 'slang-japp',
+        label: 'Japp',
+        subtitle: '',
+        answerValue: 1985,
+        answerDisplay: '1985',
+      },
+      {
+        id: 'slang-fjortis',
+        label: 'Fjortis',
+        subtitle: '',
+        answerValue: 1991,
+        answerDisplay: '1991',
+      },
+      {
+        id: 'slang-kebabnorsk',
+        label: 'Kebabnorsk',
+        subtitle: '',
+        answerValue: 1995,
+        answerDisplay: '1995',
+      },
+      {
+        id: 'slang-schpaa',
+        label: 'Schpaa',
+        subtitle: '',
+        answerValue: 1998,
+        answerDisplay: '1998',
+      },
+      {
+        id: 'slang-yolo',
+        label: 'YOLO',
+        subtitle: '',
+        answerValue: 2011,
+        answerDisplay: '2011',
+      },
+      {
+        id: 'slang-nave',
+        label: 'Å nave',
+        subtitle: '',
+        answerValue: 2012,
+        answerDisplay: '2012',
+      },
+      {
+        id: 'slang-selfie',
+        label: 'Selfie',
+        subtitle: '',
+        answerValue: 2013,
+        answerDisplay: '2013',
+      },
+      {
+        id: 'slang-fomo',
+        label: 'FOMO',
+        subtitle: '',
+        answerValue: 2016,
+        answerDisplay: '2016',
+      },
+      {
+        id: 'slang-rizz',
+        label: 'Rizz',
+        subtitle: '',
+        answerValue: 2023,
+        answerDisplay: '2023',
+      },
+    ],
+  },
 ];
 
 /**

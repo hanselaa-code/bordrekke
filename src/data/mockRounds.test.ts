@@ -286,3 +286,29 @@ describe('Sosiale medier i Norge (MOCK_ROUNDS[4])', () => {
     }
   });
 });
+
+describe('Norske slangord og uttrykk (MOCK_ROUNDS[5])', () => {
+  const slangRound = MOCK_ROUNDS[5];
+
+  it('ligger som runde 6 med 10 tekstkort uten bilde og retning Eldst → Nyest', () => {
+    expect(slangRound.id).toBe('norwegian-slang-1');
+    expect(slangRound.title).toBe('Norske slangord og uttrykk');
+    expect(slangRound.directionLabel).toBe('Eldst → Nyest');
+    expect(slangRound.cards).toHaveLength(10);
+  });
+
+  it('har unike årstall og kun uttrykket/ordet på kortet uten sifre', () => {
+    const years = slangRound.cards.map((card) => card.answerValue);
+    expect(new Set(years).size).toBe(10);
+    expect(new Set(slangRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of slangRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerDisplay).toBe(String(card.answerValue));
+      expect(card.imageUrl).toBeUndefined();
+      expect(card.label.trim().length).toBeGreaterThan(0);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).toBe('');
+    }
+  });
+});

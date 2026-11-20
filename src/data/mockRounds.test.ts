@@ -471,3 +471,43 @@ describe('Kalorier per 100 g matvare (MOCK_ROUNDS[9])', () => {
     }
   });
 });
+
+describe('Flest OL-gull (MOCK_ROUNDS[10])', () => {
+  const olympicRound = MOCK_ROUNDS[10];
+
+  it('ligger som runde 11 med 10 utøvere og retning Færrest → Flest', () => {
+    expect(olympicRound.id).toBe('olympic-golds-1');
+    expect(olympicRound.title).toBe('Flest OL-gull (sommer og vinter)');
+    expect(olympicRound.directionLabel).toBe('Færrest → Flest');
+    expect(olympicRound.cards).toHaveLength(10);
+  });
+
+  it('har unike antall OL-gull og lekkasjesikrede felt uten sifre', () => {
+    const golds = olympicRound.cards.map((card) => card.answerValue);
+    expect(new Set(golds).size).toBe(10);
+    expect(new Set(olympicRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of olympicRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.answerDisplay).toBe(`${card.answerValue} OL-gull`);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/olympians\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/olympians/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of olympicRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});

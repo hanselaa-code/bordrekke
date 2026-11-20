@@ -167,3 +167,44 @@ describe('Kjendiser etter alder (MOCK_ROUNDS[1])', () => {
     }
   });
 });
+
+describe('Hits 1980–2000 (MOCK_ROUNDS[2])', () => {
+  const hitsRound = MOCK_ROUNDS[2];
+
+  it('ligger som runde 3 med 10 låter og retning Eldst → Nyest', () => {
+    expect(hitsRound.id).toBe('music-hits-1980-2000');
+    expect(hitsRound.title).toBe('Hits 1980–2000');
+    expect(hitsRound.directionLabel).toBe('Eldst → Nyest');
+    expect(hitsRound.cards).toHaveLength(10);
+  });
+
+  it('har unike utgivelsesår mellom 1980 og 2000 og lekkasjesikrede felt', () => {
+    const years = hitsRound.cards.map((card) => card.answerValue);
+    expect(new Set(years).size).toBe(10);
+    expect(new Set(hitsRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of hitsRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThanOrEqual(1980);
+      expect(card.answerValue).toBeLessThanOrEqual(2000);
+      expect(card.answerDisplay).toBe(String(card.answerValue));
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/hits\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/hits/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of hitsRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});

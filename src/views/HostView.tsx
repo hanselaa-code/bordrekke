@@ -13,6 +13,7 @@ import {
   Users,
   XCircle,
 } from 'lucide-react';
+import { MOCK_ROUNDS, getRoundByNumber } from '../data/mockRounds';
 import { ensureAnonymousUser } from '../firebase/auth';
 import { isFirebaseConfigured } from '../firebase/config';
 import { ensureP2PHostRoom } from '../engine/p2pBackend';
@@ -39,6 +40,49 @@ export function HostView() {
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  const storageKey = normalizedRoomId ? `bordrekke:selectedRounds:${normalizedRoomId}` : null;
+  const [selectedRoundIds, setSelectedRoundIds] = useState<string[]>(() => {
+    const allIds = MOCK_ROUNDS.map((r) => r.id);
+    if (typeof window === 'undefined' || !storageKey) {
+      return allIds;
+    }
+    try {
+      const raw = window.localStorage.getItem(storageKey);
+      if (!raw) return allIds;
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        const validSet = new Set(allIds);
+        return parsed.filter((id): id is string => typeof id === 'string' && validSet.has(id));
+      }
+    } catch {
+      // Ignorer ugyldig lagring
+    }
+    return allIds;
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !storageKey) return;
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(selectedRoundIds));
+    } catch {
+      // Ignorer lagringsfeil
+    }
+  }, [storageKey, selectedRoundIds]);
+
+  function toggleRoundSelection(roundId: string) {
+    setSelectedRoundIds((prev) =>
+      prev.includes(roundId) ? prev.filter((id) => id !== roundId) : [...prev, roundId]
+    );
+  }
+
+  function handleSelectAllRounds() {
+    setSelectedRoundIds(MOCK_ROUNDS.map((r) => r.id));
+  }
+
+  function handleClearAllRounds() {
+    setSelectedRoundIds([]);
+  }
 
   useEffect(() => {
     let active = true;
@@ -95,9 +139,13 @@ export function HostView() {
 
   async function handleStartOrNextRound() {
     if (!room) return;
+    if (selectedRoundIds.length === 0) {
+      setActionError('Velg minst ett spørsmål for å starte runden.');
+      return;
+    }
     const uid = hostUid ?? room.hostUid;
     await runAction('start', () =>
-      startRound(room.id, uid, room.roundNumber, players)
+      startRound(room.id, uid, room.roundNumber, players, selectedRoundIds)
     );
   }
 
@@ -191,6 +239,7 @@ export function HostView() {
         )}
 
         {!loading && room && room.status === 'lobby' && (
+          <div className="stack-md">
           <section className="host-lobby-grid" aria-label="Lobby for spillvert">
             <div className="surface qr-panel">
               <span className="badge badge--accent">Skann for å bli med</span>
@@ -279,15 +328,19 @@ export function HostView() {
                   type="button"
                   className="btn btn--primary btn--lg btn--full"
                   onClick={handleStartOrNextRound}
-                  disabled={players.length < 2 || actionBusy !== null}
+                  disabled={
+                    players.length < 2 || selectedRoundIds.length === 0 || actionBusy !== null
+                  }
                 >
                   <Play size={22} aria-hidden="true" />
                   <span>
                     {actionBusy === 'start'
                       ? 'Deler ut kort…'
-                      : room.roundNumber > 0
-                        ? `Start runde ${room.roundNumber + 1}`
-                        : 'Start runde / Vis spørsmål'}
+                      : selectedRoundIds.length === 0
+                        ? 'Velg minst 1 spørsmål'
+                        : room.roundNumber > 0
+                          ? `Start runde ${room.roundNumber + 1}: ${getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}`
+                          : `Start runde 1: ${getRoundByNumber(1, selectedRoundIds).title}`}
                   </span>
                 </button>
                 {room.roundNumber > 0 && (
@@ -319,6 +372,63 @@ export function HostView() {
               </div>
             </div>
           </section>
+
+          <section className="surface stack-md" aria-label="Velg spørsmål til spillet">
+            <div className="row-between" style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+              <div className="stack-xs" style={{ gap: '2px' }}>
+                <h2 style={{ fontSize: '1.25rem' }}>Velg spørsmål som skal være med</h2>
+                <span className="tabular" style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
+                  {selectedRoundIds.length} av {MOCK_ROUNDS.length} spørsmål valgt
+                </span>
+              </div>
+              <div className="row" style={{ gap: 'var(--space-2)' }}>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={handleSelectAllRounds}
+                  disabled={selectedRoundIds.length === MOCK_ROUNDS.length}
+                >
+                  Velg alle
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  onClick={handleClearAllRounds}
+                  disabled={selectedRoundIds.length === 0}
+                >
+                  Fjern alle
+                </button>
+              </div>
+            </div>
+
+            <div className="round-picker-grid">
+              {MOCK_ROUNDS.map((roundOption, idx) => {
+                const isSelected = selectedRoundIds.includes(roundOption.id);
+                return (
+                  <label
+                    key={roundOption.id}
+                    className={`round-picker-item ${
+                      isSelected ? 'round-picker-item--selected' : ''
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      className="round-picker-checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleRoundSelection(roundOption.id)}
+                    />
+                    <span className="round-picker-meta">
+                      <span className="round-picker-title">
+                        {idx + 1}. {roundOption.title}
+                      </span>
+                      <span className="round-picker-sub">{roundOption.directionLabel}</span>
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </section>
+          </div>
         )}
 
         {!loading && room && room.status === 'playing' && (

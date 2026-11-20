@@ -1152,12 +1152,20 @@ export const MOCK_ROUNDS: MockRound[] = [
 ];
 
 /**
- * Henter en plassholder-runde basert på 1-basert rundetall og sykler uendelig gjennom MOCK_ROUNDS.
+ * Henter en runde basert på 1-basert rundetall og sykler gjennom valgte runder (eller alle MOCK_ROUNDS).
  */
-export function getRoundByNumber(roundNumber: number): MockRound {
+export function getRoundByNumber(
+  roundNumber: number,
+  selectedRoundIds?: readonly string[],
+): MockRound {
+  const pool =
+    selectedRoundIds && selectedRoundIds.length > 0
+      ? MOCK_ROUNDS.filter((round) => selectedRoundIds.includes(round.id))
+      : MOCK_ROUNDS;
+  const activePool = pool.length > 0 ? pool : MOCK_ROUNDS;
   const normalized = Math.max(1, Math.floor(roundNumber));
-  const index = (normalized - 1) % MOCK_ROUNDS.length;
-  return MOCK_ROUNDS[index];
+  const index = (normalized - 1) % activePool.length;
+  return activePool[index];
 }
 
 function buildExtraCardLabel(zeroBasedIndex: number): string {

@@ -544,6 +544,7 @@ export async function p2pStartRound(
   hostUid: string,
   currentRoundNumber: number,
   players: readonly PlayerDoc[],
+  selectedRoundIds?: readonly string[],
 ): Promise<void> {
   const normalizedRoomId = normalizeRoomId(roomId);
   if (!activeHost || activeHost.roomId !== normalizedRoomId) {
@@ -554,7 +555,7 @@ export async function p2pStartRound(
   }
 
   const nextRoundNumber = currentRoundNumber + 1;
-  const round = getRoundByNumber(nextRoundNumber);
+  const round = getRoundByNumber(nextRoundNumber, selectedRoundIds);
   const roundForDeal =
     players.length <= round.cards.length
       ? { ...round, cards: shuffleArray(round.cards) }

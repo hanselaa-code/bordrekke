@@ -117,9 +117,10 @@ export async function startRound(
   hostUid: string,
   currentRoundNumber: number,
   players: readonly PlayerDoc[],
+  selectedRoundIds?: readonly string[],
 ): Promise<void> {
   if (!isFirebaseConfigured) {
-    return p2pStartRound(roomId, hostUid, currentRoundNumber, players);
+    return p2pStartRound(roomId, hostUid, currentRoundNumber, players, selectedRoundIds);
   }
 
   const normalizedRoomId = normalizeRoomId(roomId);
@@ -135,7 +136,7 @@ export async function startRound(
 
   const db = requireFirestore();
   const nextRoundNumber = currentRoundNumber + 1;
-  const round = getRoundByNumber(nextRoundNumber);
+  const round = getRoundByNumber(nextRoundNumber, selectedRoundIds);
   const roundForDeal =
     players.length <= round.cards.length
       ? { ...round, cards: shuffleArray(round.cards) }

@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { Timestamp } from 'firebase/firestore';
 import { evaluateRound } from '../engine/ranking';
 import type { PlayerDoc } from '../types/game';
-import { MOCK_ROUNDS } from './mockRounds';
+import { MOCK_ROUNDS, getRoundByNumber } from './mockRounds';
 
 function createMockTimestamp(ms: number): Timestamp {
   return {
@@ -549,5 +549,14 @@ describe('Mest solgte album gjennom tidene (MOCK_ROUNDS[11])', () => {
       expect(stats.isFile()).toBe(true);
       expect(stats.size).toBeGreaterThan(1024);
     }
+  });
+});
+
+describe('getRoundByNumber med valgte spørsmål', () => {
+  it('sykler kun gjennom de avhukede rundene i rekkefølge', () => {
+    const selected = ['celebrity-ages-1', 'olympic-golds-1'];
+    expect(getRoundByNumber(1, selected).id).toBe('celebrity-ages-1');
+    expect(getRoundByNumber(2, selected).id).toBe('olympic-golds-1');
+    expect(getRoundByNumber(3, selected).id).toBe('celebrity-ages-1');
   });
 });

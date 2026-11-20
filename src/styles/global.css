@@ -1244,3 +1244,64 @@ input {
     transition: none;
   }
 }
+
+/* ==========================================================================
+   Spørsmålsvelger for spillmester (HostView)
+   ========================================================================== */
+
+.round-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: var(--space-3);
+}
+
+.round-picker-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-subtle);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
+  text-align: left;
+}
+
+.round-picker-item:hover {
+  border-color: var(--ink-primary);
+}
+
+.round-picker-item--selected {
+  background: var(--bg-surface);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.round-picker-checkbox {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.round-picker-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.round-picker-title {
+  font-weight: 700;
+  font-size: 0.9375rem;
+  line-height: 1.25;
+  color: var(--ink-primary);
+}
+
+.round-picker-sub {
+  font-size: 0.8125rem;
+  color: var(--ink-muted);
+}

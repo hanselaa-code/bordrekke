@@ -247,3 +247,42 @@ describe('Land etter størrelse (MOCK_ROUNDS[3])', () => {
     }
   });
 });
+
+describe('Sosiale medier i Norge (MOCK_ROUNDS[4])', () => {
+  const socialRound = MOCK_ROUNDS[4];
+
+  it('ligger som runde 5 med 10 plattformer og retning Minst → Mest', () => {
+    expect(socialRound.id).toBe('social-media-norway-1');
+    expect(socialRound.title).toBe('Sosiale medier i Norge (daglig bruk)');
+    expect(socialRound.directionLabel).toBe('Minst → Mest');
+    expect(socialRound.cards).toHaveLength(10);
+  });
+
+  it('har unike daglige brukerprosenter og lekkasjesikrede felt uten sifre', () => {
+    const values = socialRound.cards.map((card) => card.answerValue);
+    expect(new Set(values).size).toBe(10);
+    expect(new Set(socialRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of socialRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerDisplay).toBe(`${card.answerValue} % daglig`);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/social\/[a-z-]+\.svg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme SVG-filer under public/images/social/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of socialRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(200);
+    }
+  });
+});

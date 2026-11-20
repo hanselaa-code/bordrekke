@@ -208,3 +208,42 @@ describe('Hits 1980–2000 (MOCK_ROUNDS[2])', () => {
     }
   });
 });
+
+describe('Land etter størrelse (MOCK_ROUNDS[3])', () => {
+  const countriesRound = MOCK_ROUNDS[3];
+
+  it('ligger som runde 4 med 10 land og retning Minst → Størst', () => {
+    expect(countriesRound.id).toBe('countries-by-area-1');
+    expect(countriesRound.title).toBe('Land etter størrelse');
+    expect(countriesRound.directionLabel).toBe('Minst → Størst');
+    expect(countriesRound.cards).toHaveLength(10);
+  });
+
+  it('har unike arealer i km² og lekkasjesikrede felt uten sifre', () => {
+    const areas = countriesRound.cards.map((card) => card.answerValue);
+    expect(new Set(areas).size).toBe(10);
+    expect(new Set(countriesRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of countriesRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerDisplay).toContain('km²');
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/countries\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/countries/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of countriesRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});

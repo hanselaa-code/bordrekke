@@ -1,5 +1,6 @@
 import { onAuthStateChanged, signInAnonymously, type Auth, type User } from 'firebase/auth';
-import { auth, requireAuth } from './config';
+import { getLocalAnonymousUid } from '../engine/p2pBackend';
+import { auth, isFirebaseConfigured, requireAuth } from './config';
 
 let inFlightAnonymousAuth: Promise<User> | null = null;
 
@@ -20,10 +21,14 @@ function waitForInitialAuthState(authInstance: Auth): Promise<User | null> {
 }
 
 /**
- * Sikrer at klienten har en aktiv anonym Firebase-bruker.
- * Gjenbruker eksisterende sesjon ved sidelasting før ny anonym innlogging opprettes.
+ * Sikrer at klienten har en aktiv anonym bruker.
+ * Bruker Firebase Anonymous Auth når Firebase er konfigurert, ellers stabil lokal sesjons-ID for P2P-modus.
  */
 export async function ensureAnonymousUser(): Promise<User> {
+  if (!isFirebaseConfigured) {
+    return { uid: getLocalAnonymousUid(), isAnonymous: true } as User;
+  }
+
   const authInstance = requireAuth();
 
   if (authInstance.currentUser) {

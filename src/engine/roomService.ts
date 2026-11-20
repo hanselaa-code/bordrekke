@@ -7,8 +7,18 @@ import {
   writeBatch,
 } from 'firebase/firestore';
 import { buildCardsForPlayerCount, getRoundByNumber } from '../data/mockRounds';
-import { requireFirestore } from '../firebase/config';
+import { isFirebaseConfigured, requireFirestore } from '../firebase/config';
 import type { PlayerDoc } from '../types/game';
+import {
+  p2pCreateRoom,
+  p2pJoinRoomAsPlayer,
+  p2pLockPlayerPosition,
+  p2pResetAllLocks,
+  p2pReturnToLobby,
+  p2pRevealAnswers,
+  p2pStartRound,
+  p2pUnlockPlayerPosition,
+} from './p2pBackend';
 import { generateRoomCode, shuffleArray } from './ranking';
 
 const MAX_ROOM_CODE_ATTEMPTS = 10;
@@ -18,9 +28,13 @@ function normalizeRoomId(roomId: string): string {
 }
 
 /**
- * Oppretter et nytt spillrom med en unik 6-tegns romkode i Firestore.
+ * Oppretter et nytt spillrom med en unik 6-tegns romkode (Firestore eller P2P WebRTC).
  */
 export async function createRoom(hostUid: string): Promise<string> {
+  if (!isFirebaseConfigured) {
+    return p2pCreateRoom(hostUid);
+  }
+
   const db = requireFirestore();
 
   for (let attempt = 0; attempt < MAX_ROOM_CODE_ATTEMPTS; attempt += 1) {
@@ -55,6 +69,10 @@ export async function joinRoomAsPlayer(
   roomId: string,
   playerUid: string,
 ): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pJoinRoomAsPlayer(roomId, playerUid);
+  }
+
   const normalizedRoomId = normalizeRoomId(roomId);
   if (!normalizedRoomId) {
     throw new Error('Skriv inn en gyldig romkode.');
@@ -91,7 +109,7 @@ export async function joinRoomAsPlayer(
 }
 
 /**
- * Starter neste runde og deler atomisk ut unike, stokkede plassholderkort til alle spillere.
+ * Starter neste runde og deler atomisk ut unike, stokkede kort til alle spillere.
  */
 export async function startRound(
   roomId: string,
@@ -99,6 +117,10 @@ export async function startRound(
   currentRoundNumber: number,
   players: readonly PlayerDoc[],
 ): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pStartRound(roomId, hostUid, currentRoundNumber, players);
+  }
+
   const normalizedRoomId = normalizeRoomId(roomId);
   if (!normalizedRoomId) {
     throw new Error('Ugyldig romkode.');
@@ -145,12 +167,16 @@ export async function startRound(
 }
 
 /**
- * Låser spillerens plass i køen med serverTimestamp() og lokal fallback.
+ * Låser spillerens plass i køen med autoritativt tidsstempel.
  */
 export async function lockPlayerPosition(
   roomId: string,
   playerUid: string,
 ): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pLockPlayerPosition(roomId, playerUid);
+  }
+
   const db = requireFirestore();
   const playerRef = doc(
     db,
@@ -172,6 +198,10 @@ export async function unlockPlayerPosition(
   roomId: string,
   playerUid: string,
 ): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pUnlockPlayerPosition(roomId, playerUid);
+  }
+
   const db = requireFirestore();
   const playerRef = doc(
     db,
@@ -193,6 +223,10 @@ export async function resetAllLocks(
   roomId: string,
   players: readonly PlayerDoc[],
 ): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pResetAllLocks(roomId);
+  }
+
   const normalizedRoomId = normalizeRoomId(roomId);
   const db = requireFirestore();
   const batch = writeBatch(db);
@@ -217,6 +251,10 @@ export async function resetAllLocks(
  * Avslører fasit for den aktive runden på alle tilkoblede skjermer.
  */
 export async function revealAnswers(roomId: string): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pRevealAnswers(roomId);
+  }
+
   const db = requireFirestore();
   const roomRef = doc(db, 'rooms', normalizeRoomId(roomId));
   await updateDoc(roomRef, {
@@ -232,6 +270,10 @@ export async function returnToLobby(
   roomId: string,
   players: readonly PlayerDoc[],
 ): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pReturnToLobby(roomId);
+  }
+
   const normalizedRoomId = normalizeRoomId(roomId);
   const db = requireFirestore();
   const batch = writeBatch(db);

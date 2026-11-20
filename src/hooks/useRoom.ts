@@ -7,6 +7,7 @@ import {
   type Timestamp,
 } from 'firebase/firestore';
 import { evaluateRound } from '../engine/ranking';
+import { subscribeP2PRoom } from '../engine/p2pBackend';
 import { isFirebaseConfigured, requireFirestore } from '../firebase/config';
 import type {
   AssignedCard,
@@ -111,15 +112,29 @@ interface RoomSnapshotState {
 const EMPTY_PLAYERS: PlayerDoc[] = [];
 
 /**
- * Abonnerer i sanntid på romdokumentet og alle spillere i rommet via Firestore onSnapshot.
+ * Abonnerer i sanntid på romdokumentet og alle spillere i rommet
+ * (via Firestore onSnapshot når Firebase er konfigurert, eller PeerJS P2P WebRTC ellers).
  */
 export function useRoom(roomId: string | undefined): UseRoomResult {
   const normalizedRoomId = roomId?.trim().toUpperCase() ?? '';
   const [snapshotState, setSnapshotState] = useState<RoomSnapshotState | null>(null);
 
   useEffect(() => {
-    if (!normalizedRoomId || !isFirebaseConfigured) {
+    if (!normalizedRoomId) {
       return;
+    }
+
+    if (!isFirebaseConfigured) {
+      return subscribeP2PRoom(normalizedRoomId, (p2pSnap) => {
+        setSnapshotState({
+          roomId: normalizedRoomId,
+          room: p2pSnap.room,
+          players: p2pSnap.players,
+          roomLoaded: !p2pSnap.loading,
+          playersLoaded: !p2pSnap.loading,
+          error: p2pSnap.error,
+        });
+      });
     }
 
     const db = requireFirestore();
@@ -217,7 +232,6 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
 
   const activeState =
     normalizedRoomId &&
-    isFirebaseConfigured &&
     snapshotState &&
     snapshotState.roomId === normalizedRoomId
       ? snapshotState
@@ -227,14 +241,9 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
   const players = activeState ? activeState.players : EMPTY_PLAYERS;
   const loading = Boolean(
     normalizedRoomId &&
-      isFirebaseConfigured &&
       (!activeState || (!activeState.error && (!activeState.roomLoaded || !activeState.playersLoaded))),
   );
-  const error = !normalizedRoomId
-    ? null
-    : !isFirebaseConfigured
-      ? 'Firebase er ikke konfigurert. Legg inn miljøvariabler før du bruker sanntidsrom.'
-      : (activeState?.error ?? null);
+  const error = !normalizedRoomId ? null : (activeState?.error ?? null);
 
   const evaluation = useMemo(() => evaluateRound(players), [players]);
 

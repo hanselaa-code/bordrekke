@@ -14,6 +14,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { ensureAnonymousUser } from '../firebase/auth';
+import { isFirebaseConfigured } from '../firebase/config';
+import { ensureP2PHostRoom } from '../engine/p2pBackend';
 import {
   resetAllLocks,
   returnToLobby,
@@ -40,19 +42,23 @@ export function HostView() {
   useEffect(() => {
     let active = true;
     ensureAnonymousUser()
-      .then((user) => {
-        if (active) setHostUid(user.uid);
+      .then(async (user) => {
+        if (!active) return;
+        setHostUid(user.uid);
+        if (!isFirebaseConfigured && normalizedRoomId) {
+          await ensureP2PHostRoom(normalizedRoomId, user.uid);
+        }
       })
       .catch((err) => {
         console.error('Anonym innlogging feilet for host:', err);
         if (active) {
-          setAuthError('Kunne ikke starte anonym økt. Last siden på nytt.');
+          setAuthError('Kunne ikke starte spillrommet. Last siden på nytt.');
         }
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [normalizedRoomId]);
 
   const joinUrl = useMemo(() => {
     if (!normalizedRoomId || typeof window === 'undefined') return '';

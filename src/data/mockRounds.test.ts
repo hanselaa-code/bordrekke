@@ -312,3 +312,43 @@ describe('Norske slangord og uttrykk (MOCK_ROUNDS[5])', () => {
     }
   });
 });
+
+describe('Dødeligste sykdommer i historien (MOCK_ROUNDS[6])', () => {
+  const diseasesRound = MOCK_ROUNDS[6];
+
+  it('ligger som runde 7 med 10 bakterie-/virussykdommer og retning Færrest → Flest', () => {
+    expect(diseasesRound.id).toBe('deadliest-diseases-1');
+    expect(diseasesRound.title).toBe('Dødeligste sykdommer i historien');
+    expect(diseasesRound.directionLabel).toBe('Færrest → Flest');
+    expect(diseasesRound.cards).toHaveLength(10);
+  });
+
+  it('har strengt stigende, unike dødstall og lekkasjesikrede felt uten sifre', () => {
+    const deaths = diseasesRound.cards.map((card) => card.answerValue);
+    expect(new Set(deaths).size).toBe(10);
+    expect(new Set(diseasesRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of diseasesRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.subtitle).toMatch(/^(Virus|Bakterie)/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/diseases\/[a-z-]+\.svg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme SVG-illustrasjoner under public/images/diseases/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of diseasesRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(500);
+    }
+  });
+});

@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" width="800" height="1000">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="42%" r="68%">
+      <stop offset="0%" stop-color="#5C1E14"/>
+      <stop offset="100%" stop-color="#210905"/>
+    </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="42%" r="42%">
+      <stop offset="0%" stop-color="#F59E0B" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#F59E0B" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="800" height="1000" fill="url(#bg)"/>
+  <rect width="800" height="1000" fill="url(#glow)"/>
+  <g opacity="0.16" fill="#FFFFFF">
+    <circle cx="120" cy="180" r="18"/>
+    <circle cx="680" cy="210" r="12"/>
+    <circle cx="640" cy="650" r="22"/>
+    <circle cx="145" cy="640" r="14"/>
+    <circle cx="220" cy="280" r="7"/>
+    <circle cx="590" cy="310" r="9"/>
+  </g>
+  <g transform="translate(400, 420)">
+    
+      <rect x="-165" y="-110" width="330" height="220" rx="64" fill="#B45309" stroke="#FCD34D" stroke-width="14"/>
+      <path d="M-112,-58 C-70,-58 -45,-26 0,-26 C45,-26 70,-58 112,-58 C132,-58 138,-32 138,0 C138,32 132,58 112,58 C70,58 45,26 0,26 C-45,26 -70,58 -112,58 C-132,58 -138,32 -138,0 C-138,-32 -132,-58 -112,-58 Z"
+            fill="#78350F" stroke="#FDE68A" stroke-width="10"/>
+      <ellipse cx="0" cy="-64" rx="44" ry="18" fill="#F59E0B"/>
+      <ellipse cx="0" cy="64" rx="44" ry="18" fill="#F59E0B"/>
+  </g>
+</svg>

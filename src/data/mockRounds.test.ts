@@ -352,3 +352,42 @@ describe('Dødeligste sykdommer i historien (MOCK_ROUNDS[6])', () => {
     }
   });
 });
+
+describe('Matvarer og holdbarhet (MOCK_ROUNDS[7])', () => {
+  const foodRound = MOCK_ROUNDS[7];
+
+  it('ligger som runde 8 med 10 matvarer og retning Kortest → Lengst', () => {
+    expect(foodRound.id).toBe('food-shelf-life-1');
+    expect(foodRound.title).toBe('Matvarer og holdbarhet');
+    expect(foodRound.directionLabel).toBe('Kortest → Lengst');
+    expect(foodRound.cards).toHaveLength(10);
+  });
+
+  it('har unike holdbarhetsverdier og lekkasjesikrede felt uten sifre', () => {
+    const values = foodRound.cards.map((card) => card.answerValue);
+    expect(new Set(values).size).toBe(10);
+    expect(new Set(foodRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of foodRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/food\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/food/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of foodRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});

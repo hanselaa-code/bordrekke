@@ -9,9 +9,10 @@ import {
 } from 'firebase/firestore';
 import { buildCardsForPlayerCount, getRoundByNumber } from '../data/mockRounds';
 import { isFirebaseConfigured, requireFirestore } from '../firebase/config';
-import type { PlayerDoc } from '../types/game';
+import type { GameMode, PlayerDoc, RoomDoc, TeamConfig } from '../types/game';
 import {
   p2pCloseRoom,
+  p2pConfigureRoomMode,
   p2pCreateRoom,
   p2pJoinRoomAsPlayer,
   p2pLockPlayerPosition,
@@ -24,6 +25,7 @@ import {
   p2pUnlockPlayerPosition,
 } from './p2pBackend';
 import { generateRoomCode, shuffleArray } from './ranking';
+import { computeUpdatedTeamScores } from './teams';
 
 const MAX_ROOM_CODE_ATTEMPTS = 10;
 
@@ -51,6 +53,10 @@ export async function createRoom(hostUid: string): Promise<string> {
         id: code,
         hostUid,
         status: 'lobby',
+        gameMode: 'coop',
+        teams: [],
+        activeTeamIndex: 0,
+        lastScoredRound: 0,
         roundNumber: 0,
         activeRoundId: null,
         activeRoundTitle: null,
@@ -66,6 +72,29 @@ export async function createRoom(hostUid: string): Promise<string> {
 }
 
 /**
+ * Oppdaterer spillmodus (samarbeid, lag samtidig, lag på tur), lagliste og aktivt lag.
+ */
+export async function configureRoomMode(
+  roomId: string,
+  gameMode: GameMode,
+  teams: readonly TeamConfig[],
+  activeTeamIndex = 0,
+): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pConfigureRoomMode(roomId, gameMode, teams, activeTeamIndex);
+  }
+
+  const normalizedRoomId = normalizeRoomId(roomId);
+  const db = requireFirestore();
+  await updateDoc(doc(db, 'rooms', normalizedRoomId), {
+    gameMode,
+    teams: teams.map((t) => ({ ...t })),
+    activeTeamIndex: teams.length > 0 ? activeTeamIndex % teams.length : 0,
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
  * Kobler en spiller til et eksisterende rom.
  * Bevarer eksisterende kort og låsestatus dersom spilleren laster siden på nytt.
  */
@@ -73,9 +102,10 @@ export async function joinRoomAsPlayer(
   roomId: string,
   playerUid: string,
   deviceId?: string | null,
+  teamId?: string | null,
 ): Promise<void> {
   if (!isFirebaseConfigured) {
-    return p2pJoinRoomAsPlayer(roomId, playerUid);
+    return p2pJoinRoomAsPlayer(roomId, playerUid, teamId);
   }
 
   const normalizedRoomId = normalizeRoomId(roomId);
@@ -95,6 +125,8 @@ export async function joinRoomAsPlayer(
 
   const normalizedDeviceId =
     typeof deviceId === 'string' && deviceId.trim().length > 0 ? deviceId.trim().slice(0, 128) : null;
+  const normalizedTeamId =
+    typeof teamId === 'string' && teamId.trim().length > 0 ? teamId.trim().slice(0, 64) : null;
 
   const playerRef = doc(db, 'rooms', normalizedRoomId, 'players', playerUid);
   const playerSnap = await getDoc(playerRef);
@@ -103,6 +135,7 @@ export async function joinRoomAsPlayer(
     await updateDoc(playerRef, {
       connected: true,
       ...(normalizedDeviceId ? { deviceId: normalizedDeviceId } : {}),
+      ...(normalizedTeamId ? { teamId: normalizedTeamId } : {}),
     });
     return;
   }
@@ -110,6 +143,7 @@ export async function joinRoomAsPlayer(
   await setDoc(playerRef, {
     uid: playerUid,
     ...(normalizedDeviceId ? { deviceId: normalizedDeviceId } : {}),
+    ...(normalizedTeamId ? { teamId: normalizedTeamId } : {}),
     joinedAt: serverTimestamp(),
     connected: true,
     card: null,
@@ -118,8 +152,14 @@ export async function joinRoomAsPlayer(
   });
 }
 
+export interface StartRoundOptions {
+  gameMode?: GameMode;
+  teams?: readonly TeamConfig[];
+  activeTeamIndex?: number;
+}
+
 /**
- * Starter neste runde og deler atomisk ut unike, stokkede kort til alle spillere.
+ * Starter neste runde og deler atomisk ut unike, stokkede kort til alle spillere (eller per lag i samtidig lagmodus).
  */
 export async function startRound(
   roomId: string,
@@ -127,9 +167,10 @@ export async function startRound(
   currentRoundNumber: number,
   players: readonly PlayerDoc[],
   selectedRoundIds?: readonly string[],
+  options?: StartRoundOptions,
 ): Promise<void> {
   if (!isFirebaseConfigured) {
-    return p2pStartRound(roomId, hostUid, currentRoundNumber, players, selectedRoundIds);
+    return p2pStartRound(roomId, hostUid, currentRoundNumber, players, selectedRoundIds, options);
   }
 
   const normalizedRoomId = normalizeRoomId(roomId);
@@ -139,18 +180,32 @@ export async function startRound(
   if (!hostUid.trim()) {
     throw new Error('Mangler vert-ID for å starte runden.');
   }
-  if (players.length < 2) {
+
+  const gameMode: GameMode = options?.gameMode ?? 'coop';
+  const teams = options?.teams ?? [];
+
+  if (gameMode === 'teams-simultaneous') {
+    const activeTeamsWithPlayers = teams.filter(
+      (team) => players.filter((p) => p.teamId === team.id).length >= 2,
+    );
+    if (activeTeamsWithPlayers.length === 0) {
+      throw new Error('Minst ett lag må ha 2 eller flere tilkoblede spillere for å starte.');
+    }
+  } else if (players.length < 2) {
     throw new Error('Minst 2 spillere må være tilkoblet for å starte en runde.');
   }
 
   const db = requireFirestore();
   const nextRoundNumber = currentRoundNumber + 1;
   const round = getRoundByNumber(nextRoundNumber, selectedRoundIds);
-  const roundForDeal =
-    players.length <= round.cards.length
-      ? { ...round, cards: shuffleArray(round.cards) }
-      : round;
-  const cards = shuffleArray(buildCardsForPlayerCount(roundForDeal, players.length));
+  const shuffledBasePool = shuffleArray(round.cards);
+
+  const nextActiveTeamIndex =
+    gameMode === 'teams-turn' && teams.length > 0
+      ? currentRoundNumber === 0
+        ? (options?.activeTeamIndex ?? 0) % teams.length
+        : ((options?.activeTeamIndex ?? 0) + 1) % teams.length
+      : (options?.activeTeamIndex ?? 0);
 
   const batch = writeBatch(db);
   const roomRef = doc(db, 'rooms', normalizedRoomId);
@@ -159,20 +214,50 @@ export async function startRound(
     hostUid,
     status: 'playing',
     roundNumber: nextRoundNumber,
+    activeTeamIndex: nextActiveTeamIndex,
     activeRoundId: round.id,
     activeRoundTitle: round.title,
     activeRoundDirection: round.directionLabel,
     updatedAt: serverTimestamp(),
   });
 
-  players.forEach((player, index) => {
-    const playerRef = doc(db, 'rooms', normalizedRoomId, 'players', player.uid);
-    batch.update(playerRef, {
-      card: cards[index],
-      lockedAt: null,
-      lockedClientAt: null,
+  if (gameMode === 'teams-simultaneous') {
+    const assignedByUid = new Map<string, ReturnType<typeof buildCardsForPlayerCount>[number]>();
+    for (const team of teams) {
+      const teamPlayers = players.filter((p) => p.teamId === team.id);
+      if (teamPlayers.length === 0) continue;
+      // Alle lag får kort trukket fra samme stokkede base-utvalg for 100 % rettferdighet
+      const roundForTeam = { ...round, cards: shuffledBasePool };
+      const teamCards = shuffleArray(buildCardsForPlayerCount(roundForTeam, teamPlayers.length));
+      teamPlayers.forEach((player, idx) => {
+        assignedByUid.set(player.uid, teamCards[idx]);
+      });
+    }
+
+    players.forEach((player) => {
+      const playerRef = doc(db, 'rooms', normalizedRoomId, 'players', player.uid);
+      batch.update(playerRef, {
+        card: assignedByUid.get(player.uid) ?? null,
+        lockedAt: null,
+        lockedClientAt: null,
+      });
     });
-  });
+  } else {
+    const roundForDeal =
+      players.length <= round.cards.length
+        ? { ...round, cards: shuffledBasePool }
+        : round;
+    const cards = shuffleArray(buildCardsForPlayerCount(roundForDeal, players.length));
+
+    players.forEach((player, index) => {
+      const playerRef = doc(db, 'rooms', normalizedRoomId, 'players', player.uid);
+      batch.update(playerRef, {
+        card: cards[index],
+        lockedAt: null,
+        lockedClientAt: null,
+      });
+    });
+  }
 
   await batch.commit();
 }
@@ -259,15 +344,31 @@ export async function resetAllLocks(
 }
 
 /**
- * Avslører fasit for den aktive runden på alle tilkoblede skjermer.
+ * Avslører fasit for den aktive runden på alle tilkoblede skjermer og oppdaterer lagpoeng (1 poeng per riktig kort).
  */
-export async function revealAnswers(roomId: string): Promise<void> {
+export async function revealAnswers(
+  roomId: string,
+  room?: RoomDoc | null,
+  players?: readonly PlayerDoc[],
+): Promise<void> {
   if (!isFirebaseConfigured) {
     return p2pRevealAnswers(roomId);
   }
 
   const db = requireFirestore();
   const roomRef = doc(db, 'rooms', normalizeRoomId(roomId));
+
+  if (room && players && room.gameMode !== 'coop' && room.teams.length > 0) {
+    const { teams } = computeUpdatedTeamScores(room, players);
+    await updateDoc(roomRef, {
+      status: 'revealed',
+      teams,
+      lastScoredRound: room.roundNumber,
+      updatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
   await updateDoc(roomRef, {
     status: 'revealed',
     updatedAt: serverTimestamp(),
@@ -316,6 +417,7 @@ export async function returnToLobby(
 export async function resetGame(
   roomId: string,
   players: readonly PlayerDoc[],
+  teams?: readonly TeamConfig[],
 ): Promise<void> {
   if (!isFirebaseConfigured) {
     return p2pResetGame(roomId);
@@ -329,6 +431,9 @@ export async function resetGame(
   batch.update(roomRef, {
     status: 'lobby',
     roundNumber: 0,
+    activeTeamIndex: 0,
+    lastScoredRound: 0,
+    ...(teams ? { teams: teams.map((t) => ({ ...t, score: 0 })) } : {}),
     activeRoundId: null,
     activeRoundTitle: null,
     activeRoundDirection: null,

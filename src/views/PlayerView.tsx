@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import {
   CheckCircle2,
   Hand,
@@ -24,9 +24,11 @@ export interface PlayerViewProps {
 
 export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
   const { roomId } = useParams<{ roomId: string }>();
+  const [searchParams] = useSearchParams();
   const normalizedRoomId = roomId?.trim().toUpperCase();
+  const requestedTeamId = searchParams.get('team')?.trim() || null;
 
-  const { room, players, evaluation, loading, error } = useRoom(normalizedRoomId);
+  const { room, players, evaluation, teamEvaluations, loading, error } = useRoom(normalizedRoomId);
   const wakeLock = useWakeLock(true);
 
   const [playerUid, setPlayerUid] = useState<string | null>(initialPlayerUid ?? null);
@@ -51,7 +53,7 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
         const user = await ensureAnonymousUser();
         if (cancelled) return;
         setPlayerUid(user.uid);
-        await joinRoomAsPlayer(targetRoomId, user.uid, getStableDeviceId());
+        await joinRoomAsPlayer(targetRoomId, user.uid, getStableDeviceId(), requestedTeamId);
         if (!cancelled) {
           setJoinError(null);
           setJoinedRoomId(targetRoomId);
@@ -73,10 +75,27 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [normalizedRoomId, retryCount]);
+  }, [normalizedRoomId, requestedTeamId, retryCount]);
 
-  const myEntry = playerUid ? evaluation.byUid[playerUid] : undefined;
-  const myPlayer = myEntry?.player ?? players.find((p) => p.uid === playerUid);
+  const rawMyPlayer = players.find((p) => p.uid === playerUid);
+  const myTeamId = rawMyPlayer?.teamId ?? requestedTeamId;
+  const isSimultaneousTeams = room?.gameMode === 'teams-simultaneous';
+  const isTurnTeams = room?.gameMode === 'teams-turn';
+
+  const activeEvaluation =
+    isSimultaneousTeams && myTeamId && teamEvaluations[myTeamId]
+      ? teamEvaluations[myTeamId]
+      : evaluation;
+
+  const myTeam =
+    isSimultaneousTeams && myTeamId
+      ? room?.teams.find((t) => t.id === myTeamId) ?? null
+      : isTurnTeams && room && room.teams.length > 0
+        ? room.teams[room.activeTeamIndex % room.teams.length] ?? null
+        : null;
+
+  const myEntry = playerUid ? activeEvaluation.byUid[playerUid] : undefined;
+  const myPlayer = myEntry?.player ?? rawMyPlayer;
   const myCard = myPlayer?.card ?? null;
 
   const isRoomRevealed = !loading && room !== null && room.status === 'revealed';
@@ -85,7 +104,7 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
     ? 0
     : myEntry?.lockedRank !== null && myEntry?.lockedRank !== undefined
       ? Math.max(0, (myEntry.lockedRank - 1) * 1000)
-      : evaluation.lockedCount * 1000;
+      : activeEvaluation.lockedCount * 1000;
 
   const isMyRevealReady =
     isRoomRevealed &&
@@ -291,7 +310,17 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
   return (
     <main className="player-shell">
       <header className="topbar">
-        <span className="room-code-pill">Rom {normalizedRoomId}</span>
+        <div className="row" style={{ gap: '8px' }}>
+          <span className="room-code-pill">Rom {normalizedRoomId}</span>
+          {myTeam && (
+            <span
+              className="team-pill"
+              style={{ backgroundColor: myTeam.color, color: '#ffffff' }}
+            >
+              {isTurnTeams ? `${myTeam.name} sin tur` : myTeam.name}
+            </span>
+          )}
+        </div>
         <WakeLockBadge isSupported={wakeLock.isSupported} isActive={wakeLock.isActive} />
       </header>
 
@@ -365,7 +394,9 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
           <div className="surface--subtle row" style={{ justifyContent: 'center' }}>
             <Users size={18} color="var(--ink-secondary)" aria-hidden="true" />
             <span className="tabular" style={{ fontWeight: 700 }}>
-              {players.length} {players.length === 1 ? 'spiller' : 'spillere'} i lobbyen
+              {isSimultaneousTeams && myTeam
+                ? `${activeEvaluation.totalPlayers} ${activeEvaluation.totalPlayers === 1 ? 'spiller' : 'spillere'} på ${myTeam.name}`
+                : `${players.length} ${players.length === 1 ? 'spiller' : 'spillere'} i lobbyen`}
             </span>
           </div>
 
@@ -459,7 +490,7 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
                       className="tabular"
                       style={{ fontSize: '0.875rem', color: '#d4d4d8' }}
                     >
-                      {evaluation.lockedCount} av {evaluation.totalPlayers} låst
+                      {activeEvaluation.lockedCount} av {activeEvaluation.totalPlayers} låst
                     </span>
                   </div>
 
@@ -488,7 +519,7 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
                       </span>
                     </span>
                     <span className="btn-tactile-sub tabular">
-                      {evaluation.lockedCount} av {evaluation.totalPlayers} låst så langt
+                      {activeEvaluation.lockedCount} av {activeEvaluation.totalPlayers} låst så langt
                     </span>
                   </button>
                 </div>

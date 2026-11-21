@@ -1,8 +1,9 @@
 import Peer, { type DataConnection } from 'peerjs';
 import type { Timestamp } from 'firebase/firestore';
 import { buildCardsForPlayerCount, getRoundByNumber } from '../data/mockRounds';
-import type { AssignedCard, PlayerDoc, RoomDoc, RoomStatus } from '../types/game';
+import type { AssignedCard, GameMode, PlayerDoc, RoomDoc, RoomStatus, TeamConfig } from '../types/game';
 import { generateRoomCode, shuffleArray } from './ranking';
+import { computeUpdatedTeamScores } from './teams';
 
 const PEER_PREFIX = 'bordrekke-host-';
 const SESSION_UID_KEY = 'bordrekke_p2p_uid';
@@ -23,6 +24,10 @@ interface SerializedRoom {
   id: string;
   hostUid: string;
   status: RoomStatus;
+  gameMode: GameMode;
+  teams: TeamConfig[];
+  activeTeamIndex: number;
+  lastScoredRound: number;
   roundNumber: number;
   activeRoundId: string | null;
   activeRoundTitle: string | null;
@@ -33,6 +38,7 @@ interface SerializedRoom {
 
 interface SerializedPlayer {
   uid: string;
+  teamId?: string | null;
   joinedAtMs: number | null;
   connected: boolean;
   card: AssignedCard | null;
@@ -80,6 +86,10 @@ function serializeRoom(room: RoomDoc): SerializedRoom {
     id: room.id,
     hostUid: room.hostUid,
     status: room.status,
+    gameMode: room.gameMode,
+    teams: room.teams,
+    activeTeamIndex: room.activeTeamIndex,
+    lastScoredRound: room.lastScoredRound,
     roundNumber: room.roundNumber,
     activeRoundId: room.activeRoundId,
     activeRoundTitle: room.activeRoundTitle,
@@ -94,6 +104,10 @@ function deserializeRoom(data: SerializedRoom): RoomDoc {
     id: data.id,
     hostUid: data.hostUid,
     status: data.status,
+    gameMode: data.gameMode ?? 'coop',
+    teams: Array.isArray(data.teams) ? data.teams : [],
+    activeTeamIndex: typeof data.activeTeamIndex === 'number' ? data.activeTeamIndex : 0,
+    lastScoredRound: typeof data.lastScoredRound === 'number' ? data.lastScoredRound : 0,
     roundNumber: data.roundNumber,
     activeRoundId: data.activeRoundId,
     activeRoundTitle: data.activeRoundTitle,
@@ -106,6 +120,7 @@ function deserializeRoom(data: SerializedRoom): RoomDoc {
 function serializePlayer(player: PlayerDoc): SerializedPlayer {
   return {
     uid: player.uid,
+    teamId: player.teamId ?? null,
     joinedAtMs: player.joinedAt?.toMillis() ?? null,
     connected: player.connected,
     card: player.card,
@@ -117,6 +132,7 @@ function serializePlayer(player: PlayerDoc): SerializedPlayer {
 function deserializePlayer(data: SerializedPlayer): PlayerDoc {
   return {
     uid: data.uid,
+    teamId: data.teamId ?? null,
     joinedAt: makeTimestamp(data.joinedAtMs),
     connected: data.connected,
     card: data.card,
@@ -349,6 +365,10 @@ export async function p2pCreateRoom(hostUid: string, requestedCode?: string): Pr
           id: code,
           hostUid,
           status: 'lobby',
+          gameMode: 'coop',
+          teams: [],
+          activeTeamIndex: 0,
+          lastScoredRound: 0,
           roundNumber: 0,
           activeRoundId: null,
           activeRoundTitle: null,
@@ -401,10 +421,34 @@ export async function p2pCreateRoom(hostUid: string, requestedCode?: string): Pr
   });
 }
 
+export async function p2pConfigureRoomMode(
+  roomId: string,
+  gameMode: GameMode,
+  teams: readonly TeamConfig[],
+  activeTeamIndex = 0,
+): Promise<void> {
+  const normalizedRoomId = normalizeRoomId(roomId);
+  if (!activeHost || activeHost.roomId !== normalizedRoomId) {
+    throw new Error('Du er ikke aktiv vert for dette rommet.');
+  }
+  activeHost.room = {
+    ...activeHost.room,
+    gameMode,
+    teams: teams.map((t) => ({ ...t })),
+    activeTeamIndex: teams.length > 0 ? activeTeamIndex % teams.length : 0,
+    updatedAt: makeTimestamp(Date.now()),
+  };
+  broadcastHostState(activeHost);
+}
+
 /**
  * Kobler en mobil/spiller direkte til verten for rommet via WebRTC DataChannel.
  */
-export async function p2pJoinRoomAsPlayer(roomId: string, playerUid: string): Promise<void> {
+export async function p2pJoinRoomAsPlayer(
+  roomId: string,
+  playerUid: string,
+  _teamId?: string | null,
+): Promise<void> {
   const normalizedRoomId = normalizeRoomId(roomId);
   if (!normalizedRoomId) {
     throw new Error('Skriv inn en gyldig romkode.');
@@ -545,6 +589,7 @@ export async function p2pStartRound(
   currentRoundNumber: number,
   players: readonly PlayerDoc[],
   selectedRoundIds?: readonly string[],
+  options?: { gameMode?: GameMode; teams?: readonly TeamConfig[]; activeTeamIndex?: number },
 ): Promise<void> {
   const normalizedRoomId = normalizeRoomId(roomId);
   if (!activeHost || activeHost.roomId !== normalizedRoomId) {
@@ -554,13 +599,17 @@ export async function p2pStartRound(
     throw new Error('Minst 2 spillere må være tilkoblet for å starte en runde.');
   }
 
+  const gameMode: GameMode = options?.gameMode ?? activeHost.room.gameMode;
+  const teams = options?.teams ?? activeHost.room.teams;
   const nextRoundNumber = currentRoundNumber + 1;
   const round = getRoundByNumber(nextRoundNumber, selectedRoundIds);
-  const roundForDeal =
-    players.length <= round.cards.length
-      ? { ...round, cards: shuffleArray(round.cards) }
-      : round;
-  const cards = shuffleArray(buildCardsForPlayerCount(roundForDeal, players.length));
+  const shuffledBasePool = shuffleArray(round.cards);
+  const nextActiveTeamIndex =
+    gameMode === 'teams-turn' && teams.length > 0
+      ? currentRoundNumber === 0
+        ? (options?.activeTeamIndex ?? activeHost.room.activeTeamIndex) % teams.length
+        : ((options?.activeTeamIndex ?? activeHost.room.activeTeamIndex) + 1) % teams.length
+      : activeHost.room.activeTeamIndex;
 
   const now = Date.now();
   activeHost.room = {
@@ -568,21 +617,46 @@ export async function p2pStartRound(
     hostUid,
     status: 'playing',
     roundNumber: nextRoundNumber,
+    activeTeamIndex: nextActiveTeamIndex,
     activeRoundId: round.id,
     activeRoundTitle: round.title,
     activeRoundDirection: round.directionLabel,
     updatedAt: makeTimestamp(now),
   };
 
-  players.forEach((player, index) => {
-    const existing = activeHost?.players.get(player.uid) ?? player;
-    activeHost?.players.set(player.uid, {
-      ...existing,
-      card: cards[index],
-      lockedAt: null,
-      lockedClientAt: null,
+  if (gameMode === 'teams-simultaneous') {
+    const assigned = new Map<string, AssignedCard>();
+    for (const team of teams) {
+      const tp = players.filter((p) => p.teamId === team.id);
+      if (tp.length === 0) continue;
+      const cards = shuffleArray(buildCardsForPlayerCount({ ...round, cards: shuffledBasePool }, tp.length));
+      tp.forEach((p, idx) => assigned.set(p.uid, cards[idx]));
+    }
+    players.forEach((player) => {
+      const existing = activeHost?.players.get(player.uid) ?? player;
+      activeHost?.players.set(player.uid, {
+        ...existing,
+        card: assigned.get(player.uid) ?? null,
+        lockedAt: null,
+        lockedClientAt: null,
+      });
     });
-  });
+  } else {
+    const roundForDeal =
+      players.length <= round.cards.length
+        ? { ...round, cards: shuffledBasePool }
+        : round;
+    const cards = shuffleArray(buildCardsForPlayerCount(roundForDeal, players.length));
+    players.forEach((player, index) => {
+      const existing = activeHost?.players.get(player.uid) ?? player;
+      activeHost?.players.set(player.uid, {
+        ...existing,
+        card: cards[index],
+        lockedAt: null,
+        lockedClientAt: null,
+      });
+    });
+  }
 
   broadcastHostState(activeHost);
 }
@@ -664,9 +738,14 @@ export async function p2pRevealAnswers(roomId: string): Promise<void> {
     throw new Error('Du er ikke aktiv vert for dette rommet.');
   }
 
+  const allPlayers = Array.from(activeHost.players.values());
+  const { teams } = computeUpdatedTeamScores(activeHost.room, allPlayers);
+
   activeHost.room = {
     ...activeHost.room,
     status: 'revealed',
+    teams,
+    lastScoredRound: activeHost.room.roundNumber,
     updatedAt: makeTimestamp(Date.now()),
   };
   broadcastHostState(activeHost);
@@ -707,6 +786,9 @@ export async function p2pResetGame(roomId: string): Promise<void> {
     ...activeHost.room,
     status: 'lobby',
     roundNumber: 0,
+    activeTeamIndex: 0,
+    lastScoredRound: 0,
+    teams: activeHost.room.teams.map((t) => ({ ...t, score: 0 })),
     activeRoundId: null,
     activeRoundTitle: null,
     activeRoundDirection: null,

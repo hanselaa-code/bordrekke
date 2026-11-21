@@ -2,6 +2,15 @@ import type { Timestamp } from 'firebase/firestore';
 
 export type RoomStatus = 'lobby' | 'playing' | 'revealed';
 
+export type GameMode = 'coop' | 'teams-simultaneous' | 'teams-turn';
+
+export interface TeamConfig {
+  id: string;
+  name: string;
+  color: string;
+  score: number;
+}
+
 /**
  * Kort som deles ut til én tilkoblet mobilskjerm per runde.
  * Kan inneholde bilde (for bildebaserte runder) eller kun tekst (for plassholder-runder).
@@ -37,6 +46,12 @@ export interface RoomDoc {
   id: string;
   hostUid: string;
   status: RoomStatus;
+  gameMode: GameMode;
+  teams: TeamConfig[];
+  /** Indeks inn i `teams` for hvilket lag som har turen i `teams-turn`-modus. */
+  activeTeamIndex: number;
+  /** Siste rundenummer som er poengberegnet (hindrer dobbel poenggiving ved duplikate klikk). */
+  lastScoredRound: number;
   roundNumber: number;
   activeRoundId: string | null;
   activeRoundTitle: string | null;
@@ -52,6 +67,8 @@ export interface PlayerDoc {
   uid: string;
   /** Stabil enhets-ID per nettleser/telefon for å hindre duplikate deltakere ved ny QR-skanning. */
   deviceId?: string | null;
+  /** Lag-ID i `teams-simultaneous`-modus (satt via ?team=... i QR-lenken). */
+  teamId?: string | null;
   joinedAt: Timestamp | null;
   connected: boolean;
   card: AssignedCard | null;

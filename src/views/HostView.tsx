@@ -11,6 +11,7 @@ import {
   RotateCcw,
   SkipForward,
   Smartphone,
+  Trophy,
   Users,
   X,
   XCircle,
@@ -21,6 +22,7 @@ import { isFirebaseConfigured } from '../firebase/config';
 import { ensureP2PHostRoom } from '../engine/p2pBackend';
 import {
   closeRoom,
+  configureRoomMode,
   createRoom,
   removePlayerFromRoom,
   resetAllLocks,
@@ -29,6 +31,8 @@ import {
   revealAnswers,
   startRound,
 } from '../engine/roomService';
+import { buildDefaultTeams, computeUpdatedTeamScores } from '../engine/teams';
+import type { GameMode, TeamConfig } from '../types/game';
 import { useRoom } from '../hooks/useRoom';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { WakeLockBadge } from '../components/WakeLockBadge';
@@ -39,14 +43,14 @@ export function HostView() {
   const normalizedRoomId = roomId?.trim().toUpperCase();
   const dedupInFlightRef = useRef<Set<string>>(new Set());
 
-  const { room, players, evaluation, loading, error } = useRoom(normalizedRoomId);
+  const { room, players, evaluation, teamEvaluations, loading, error } = useRoom(normalizedRoomId);
   const wakeLock = useWakeLock(true);
 
   const [hostUid, setHostUid] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
   const storageKey = normalizedRoomId ? `bordrekke:selectedRounds:${normalizedRoomId}` : null;
   const [selectedRoundIds, setSelectedRoundIds] = useState<string[]>(() => {
@@ -117,15 +121,55 @@ export function HostView() {
     return `${window.location.origin}${window.location.pathname}#/play/${normalizedRoomId}`;
   }, [normalizedRoomId]);
 
-  async function handleCopyLink() {
-    if (!joinUrl) return;
+  function getTeamJoinUrl(teamId: string): string {
+    if (!joinUrl) return '';
+    return `${joinUrl}?team=${encodeURIComponent(teamId)}`;
+  }
+
+  async function handleCopyLink(targetUrl = joinUrl, key = 'main') {
+    if (!targetUrl) return;
     try {
-      await navigator.clipboard.writeText(joinUrl);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(targetUrl);
+      setCopiedKey(key);
+      window.setTimeout(() => setCopiedKey(null), 2000);
     } catch {
       setActionError('Kunne ikke kopiere lenken automatisk. Del romkoden manuelt.');
     }
+  }
+
+  async function handleSelectGameMode(nextMode: GameMode) {
+    if (!room) return;
+    const nextTeams: TeamConfig[] =
+      nextMode === 'coop'
+        ? []
+        : room.teams.length >= 2
+          ? room.teams
+          : buildDefaultTeams(nextMode === 'teams-simultaneous' ? 3 : 2);
+    await runAction('mode', () => configureRoomMode(room.id, nextMode, nextTeams, 0));
+  }
+
+  async function handleSetTeamCount(count: number) {
+    if (!room || room.gameMode === 'coop') return;
+    const nextTeams = buildDefaultTeams(count, room.teams);
+    await runAction('team-count', () =>
+      configureRoomMode(room.id, room.gameMode, nextTeams, 0)
+    );
+  }
+
+  async function handleRenameTeam(teamId: string, nextName: string) {
+    if (!room) return;
+    const trimmed = nextName.trim();
+    const nextTeams = room.teams.map((t, idx) =>
+      t.id === teamId ? { ...t, name: trimmed || `Lag ${idx + 1}` } : t
+    );
+    await configureRoomMode(room.id, room.gameMode, nextTeams, room.activeTeamIndex);
+  }
+
+  async function handleSetActiveTeam(index: number) {
+    if (!room || room.teams.length === 0) return;
+    await runAction('active-team', () =>
+      configureRoomMode(room.id, room.gameMode, room.teams, index)
+    );
   }
 
   async function runAction(name: string, fn: () => Promise<void>) {
@@ -152,7 +196,11 @@ export function HostView() {
     }
     const uid = hostUid ?? room.hostUid;
     await runAction('start', () =>
-      startRound(room.id, uid, room.roundNumber, players, selectedRoundIds)
+      startRound(room.id, uid, room.roundNumber, players, selectedRoundIds, {
+        gameMode: room.gameMode,
+        teams: room.teams,
+        activeTeamIndex: room.activeTeamIndex,
+      })
     );
   }
 
@@ -163,7 +211,7 @@ export function HostView() {
 
   async function handleReveal() {
     if (!room) return;
-    await runAction('reveal', () => revealAnswers(room.id));
+    await runAction('reveal', () => revealAnswers(room.id, room, players));
   }
 
   async function handleReturnToLobby() {
@@ -173,7 +221,7 @@ export function HostView() {
 
   async function handleResetGame() {
     if (!room) return;
-    await runAction('reset-game', () => resetGame(room.id, players));
+    await runAction('reset-game', () => resetGame(room.id, players, room.teams));
   }
 
   async function handleRemovePlayer(targetUid: string) {
@@ -268,6 +316,45 @@ export function HostView() {
       ? Math.round((evaluation.lockedCount / evaluation.totalPlayers) * 100)
       : 0;
 
+  const isTeamMode = room !== null && room.gameMode !== 'coop' && room.teams.length > 0;
+  const isSimultaneousTeams = room?.gameMode === 'teams-simultaneous';
+  const isTurnTeams = room?.gameMode === 'teams-turn';
+
+  const activeTurnTeam =
+    isTurnTeams && room && room.teams.length > 0
+      ? room.teams[room.activeTeamIndex % room.teams.length]
+      : null;
+
+  const nextTurnTeam =
+    isTurnTeams && room && room.teams.length > 0
+      ? room.teams[
+          (room.roundNumber === 0 ? room.activeTeamIndex : room.activeTeamIndex + 1) %
+            room.teams.length
+        ]
+      : null;
+
+  const canStartRound = useMemo(() => {
+    if (!room || selectedRoundIds.length === 0) return false;
+    if (room.gameMode === 'teams-simultaneous') {
+      return room.teams.some(
+        (team) => players.filter((p) => p.teamId === team.id).length >= 2
+      );
+    }
+    return players.length >= 2;
+  }, [room, players, selectedRoundIds.length]);
+
+  const sortedLeaderboard = useMemo(() => {
+    if (!room || room.teams.length === 0) return [];
+    return [...room.teams].sort((a, b) => b.score - a.score);
+  }, [room]);
+
+  const roundPointsByTeamId = useMemo(() => {
+    if (!room || room.gameMode === 'coop' || room.teams.length === 0) {
+      return {} as Record<string, number>;
+    }
+    return computeUpdatedTeamScores(room, players).roundPointsByTeamId;
+  }, [room, players]);
+
   return (
     <main className="page">
       <div className="container">
@@ -339,7 +426,240 @@ export function HostView() {
 
         {!loading && room && room.status === 'lobby' && (
           <div className="stack-md">
-          <section className="host-lobby-grid" aria-label="Lobby for spillvert">
+            <section className="surface stack-md" aria-label="Spillmodus og lagoppsett">
+              <div className="row-between" style={{ flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+                <div className="stack-xs" style={{ gap: '2px' }}>
+                  <h2 style={{ fontSize: '1.125rem' }}>Spillmodus</h2>
+                  <span style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
+                    Velg samarbeid eller teambuilding med lag og poengtavle (1 poeng per grønt kort)
+                  </span>
+                </div>
+              </div>
+
+              <div className="mode-grid">
+                <button
+                  type="button"
+                  className={`mode-card ${room.gameMode === 'coop' ? 'mode-card--active' : ''}`}
+                  onClick={() => handleSelectGameMode('coop')}
+                  disabled={actionBusy !== null}
+                >
+                  <strong>Samarbeid (1 bord)</strong>
+                  <span>Alle rundt bordet spiller sammen som ett lag</span>
+                </button>
+                <button
+                  type="button"
+                  className={`mode-card ${room.gameMode === 'teams-simultaneous' ? 'mode-card--active' : ''}`}
+                  onClick={() => handleSelectGameMode('teams-simultaneous')}
+                  disabled={actionBusy !== null}
+                >
+                  <strong>Lag – samtidig</strong>
+                  <span>Stor gruppe · egen QR-kode per lag · samme spørsmål samtidig</span>
+                </button>
+                <button
+                  type="button"
+                  className={`mode-card ${room.gameMode === 'teams-turn' ? 'mode-card--active' : ''}`}
+                  onClick={() => handleSelectGameMode('teams-turn')}
+                  disabled={actionBusy !== null}
+                >
+                  <strong>Lag – på tur</strong>
+                  <span>Liten gruppe · bruker alle telefonene · lagene rullerer på tur</span>
+                </button>
+              </div>
+
+              {isTeamMode && (
+                <div className="stack-sm">
+                  <div className="row-between" style={{ flexWrap: 'wrap', gap: 'var(--space-2)' }}>
+                    <span style={{ fontWeight: 700, fontSize: '0.9375rem' }}>
+                      Antall lag ({room.teams.length})
+                    </span>
+                    <div className="row" style={{ gap: '6px' }}>
+                      {[2, 3, 4, 5, 6].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          className={`btn ${room.teams.length === n ? 'btn--primary' : 'btn--secondary'}`}
+                          style={{ minHeight: '36px', minWidth: '40px', padding: '4px 10px' }}
+                          onClick={() => handleSetTeamCount(n)}
+                          disabled={actionBusy !== null}
+                        >
+                          {n}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="team-config-grid">
+                    {room.teams.map((team, idx) => (
+                      <div
+                        key={team.id}
+                        className="team-config-chip"
+                        style={{ borderLeft: `5px solid ${team.color}` }}
+                      >
+                        <input
+                          type="text"
+                          className="team-name-input"
+                          defaultValue={team.name}
+                          aria-label={`Navn på ${team.name}`}
+                          maxLength={28}
+                          onBlur={(e) => {
+                            if (e.target.value.trim() !== team.name) {
+                              void handleRenameTeam(team.id, e.target.value);
+                            }
+                          }}
+                        />
+                        <span className="badge badge--dark tabular">{team.score} p</span>
+                        {isTurnTeams && (
+                          <button
+                            type="button"
+                            className={`btn ${
+                              room.activeTeamIndex % room.teams.length === idx
+                                ? 'btn--primary'
+                                : 'btn--secondary'
+                            }`}
+                            style={{ minHeight: '30px', padding: '2px 8px', fontSize: '0.75rem' }}
+                            onClick={() => handleSetActiveTeam(idx)}
+                            disabled={actionBusy !== null}
+                          >
+                            {room.activeTeamIndex % room.teams.length === idx
+                              ? 'Har turen'
+                              : 'Gi tur'}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+
+            {isSimultaneousTeams ? (
+              <section className="stack-md" aria-label="QR-koder per lag">
+                <div className="team-qr-grid">
+                  {room.teams.map((team) => {
+                    const teamPlayers = players.filter((p) => p.teamId === team.id);
+                    const teamUrl = getTeamJoinUrl(team.id);
+                    return (
+                      <div
+                        key={team.id}
+                        className="surface team-qr-card"
+                        style={{ borderTop: `6px solid ${team.color}` }}
+                      >
+                        <div className="row-between" style={{ width: '100%' }}>
+                          <span
+                            className="team-pill"
+                            style={{ backgroundColor: team.color, color: '#ffffff' }}
+                          >
+                            {team.name}
+                          </span>
+                          <span className="badge badge--dark tabular">
+                            {teamPlayers.length} {teamPlayers.length === 1 ? 'mobil' : 'mobiler'}
+                          </span>
+                        </div>
+
+                        <div className="qr-frame" style={{ padding: '12px' }}>
+                          <QRCodeSVG
+                            value={teamUrl}
+                            size={176}
+                            level="M"
+                            bgColor="#FFFFFF"
+                            fgColor="#18181B"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          className="btn btn--secondary btn--full"
+                          style={{ minHeight: '38px', fontSize: '0.875rem' }}
+                          onClick={() => handleCopyLink(teamUrl, team.id)}
+                        >
+                          {copiedKey === team.id ? (
+                            <>
+                              <Check size={16} color="var(--correct)" aria-hidden="true" />
+                              <span>Lenke kopiert!</span>
+                            </>
+                          ) : (
+                            <>
+                              <Copy size={16} aria-hidden="true" />
+                              <span>Kopier laglenke</span>
+                            </>
+                          )}
+                        </button>
+
+                        {teamPlayers.length > 0 && (
+                          <div className="device-grid" style={{ width: '100%' }}>
+                            {teamPlayers.map((player, index) => (
+                              <div key={player.uid} className="device-chip">
+                                <span
+                                  className="device-chip-dot"
+                                  style={{ background: team.color }}
+                                  aria-hidden="true"
+                                />
+                                <span className="tabular">Mobil {index + 1}</span>
+                                <button
+                                  type="button"
+                                  className="device-chip-remove"
+                                  aria-label={`Fjern Mobil ${index + 1} fra ${team.name}`}
+                                  onClick={() => handleRemovePlayer(player.uid)}
+                                  disabled={actionBusy !== null}
+                                >
+                                  <X size={13} aria-hidden="true" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="surface stack-sm">
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--lg btn--full"
+                    onClick={handleStartOrNextRound}
+                    disabled={!canStartRound || actionBusy !== null}
+                  >
+                    <Play size={22} aria-hidden="true" />
+                    <span>
+                      {actionBusy === 'start'
+                        ? 'Deler ut kort til alle lag…'
+                        : selectedRoundIds.length === 0
+                          ? 'Velg minst 1 spørsmål'
+                          : room.roundNumber > 0
+                            ? `Start runde ${room.roundNumber + 1}: ${getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}`
+                            : `Start runde 1: ${getRoundByNumber(1, selectedRoundIds).title}`}
+                    </span>
+                  </button>
+                  {room.roundNumber > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--full"
+                      onClick={handleResetGame}
+                      disabled={actionBusy !== null}
+                    >
+                      <RotateCcw size={18} aria-hidden="true" />
+                      <span>Nullstill spill og poeng (start fra runde 1)</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--full"
+                    onClick={handleStartFreshRoom}
+                    disabled={actionBusy !== null}
+                  >
+                    <LogOut size={16} aria-hidden="true" />
+                    <span>Start helt nytt spillrom (ny QR-kode)</span>
+                  </button>
+                  {!canStartRound && selectedRoundIds.length > 0 && (
+                    <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)', textAlign: 'center' }}>
+                      Minst ett lag må ha 2 eller flere tilkoblede mobiler for å starte.
+                    </p>
+                  )}
+                </div>
+              </section>
+            ) : (
+            <section className="host-lobby-grid" aria-label="Lobby for spillvert">
             <div className="surface qr-panel">
               <span className="badge badge--accent">Skann for å bli med</span>
               <div className="qr-frame">
@@ -372,9 +692,9 @@ export function HostView() {
               <button
                 type="button"
                 className="btn btn--secondary btn--full"
-                onClick={handleCopyLink}
+                onClick={() => handleCopyLink(joinUrl, 'main')}
               >
-                {copied ? (
+                {copiedKey === 'main' ? (
                   <>
                     <Check size={18} color="var(--correct)" aria-hidden="true" />
                     <span>Lenke kopiert!</span>
@@ -437,9 +757,7 @@ export function HostView() {
                   type="button"
                   className="btn btn--primary btn--lg btn--full"
                   onClick={handleStartOrNextRound}
-                  disabled={
-                    players.length < 2 || selectedRoundIds.length === 0 || actionBusy !== null
-                  }
+                  disabled={!canStartRound || actionBusy !== null}
                 >
                   <Play size={22} aria-hidden="true" />
                   <span>
@@ -447,9 +765,11 @@ export function HostView() {
                       ? 'Deler ut kort…'
                       : selectedRoundIds.length === 0
                         ? 'Velg minst 1 spørsmål'
-                        : room.roundNumber > 0
-                          ? `Start runde ${room.roundNumber + 1}: ${getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}`
-                          : `Start runde 1: ${getRoundByNumber(1, selectedRoundIds).title}`}
+                        : isTurnTeams && nextTurnTeam
+                          ? `Start runde ${room.roundNumber + 1} (${nextTurnTeam.name}): ${getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}`
+                          : room.roundNumber > 0
+                            ? `Start runde ${room.roundNumber + 1}: ${getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}`
+                            : `Start runde 1: ${getRoundByNumber(1, selectedRoundIds).title}`}
                   </span>
                 </button>
                 {room.roundNumber > 0 && (
@@ -494,6 +814,7 @@ export function HostView() {
               </div>
             </div>
           </section>
+            )}
 
           <section className="surface stack-md" aria-label="Velg spørsmål til spillet">
             <div className="row-between" style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
@@ -556,10 +877,23 @@ export function HostView() {
         {!loading && room && room.status === 'playing' && (
           <section className="stack-md" aria-label="Aktiv runde">
             <div className="surface stack-md">
-              <div className="row-between">
-                <span className="badge badge--accent tabular">
-                  Runde {room.roundNumber}
-                </span>
+              <div className="row-between" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                <div className="row" style={{ gap: '8px' }}>
+                  <span className="badge badge--accent tabular">
+                    Runde {room.roundNumber}
+                  </span>
+                  {activeTurnTeam && (
+                    <span
+                      className="team-pill"
+                      style={{ backgroundColor: activeTurnTeam.color, color: '#ffffff' }}
+                    >
+                      {activeTurnTeam.name} sin tur!
+                    </span>
+                  )}
+                  {isSimultaneousTeams && (
+                    <span className="badge">Alle lag spiller samtidig</span>
+                  )}
+                </div>
                 <span className="badge badge--dark">
                   {room.activeRoundDirection ?? 'Lavest → Høyest'}
                 </span>
@@ -657,6 +991,79 @@ export function HostView() {
               </div>
             </div>
 
+            {isSimultaneousTeams ? (
+              <div className="team-qr-grid">
+                {room.teams.map((team) => {
+                  const teamEval = teamEvaluations[team.id];
+                  const teamCards = (teamEval?.rankedPlayers ?? []).filter(
+                    (e) => e.player.card !== null
+                  );
+                  return (
+                    <div
+                      key={team.id}
+                      className="surface stack-sm"
+                      style={{ borderTop: `5px solid ${team.color}` }}
+                    >
+                      <div className="row-between">
+                        <span
+                          className="team-pill"
+                          style={{ backgroundColor: team.color, color: '#ffffff' }}
+                        >
+                          {team.name}
+                        </span>
+                        <span
+                          className={`badge tabular ${
+                            teamEval?.allLocked ? 'badge--success' : 'badge--dark'
+                          }`}
+                        >
+                          {teamEval?.lockedCount ?? 0}/{teamEval?.totalPlayers ?? 0} låst
+                        </span>
+                      </div>
+
+                      {teamCards.length === 0 ? (
+                        <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
+                          Ingen aktive kort på dette laget i denne runden.
+                        </p>
+                      ) : (
+                        <div className="slot-list">
+                          {teamCards.map((entry, idx) => {
+                            const isLocked = entry.lockedRank !== null;
+                            const card = entry.player.card;
+                            return (
+                              <div
+                                key={entry.player.uid}
+                                className={`slot-row ${isLocked ? 'slot-row--locked' : ''}`}
+                              >
+                                <div className="slot-main">
+                                  <span
+                                    className={`slot-rank tabular ${
+                                      isLocked ? 'slot-rank--locked' : ''
+                                    }`}
+                                  >
+                                    {isLocked ? `#${entry.lockedRank}` : '–'}
+                                  </span>
+                                  {card?.imageUrl && (
+                                    <img
+                                      className="slot-thumb"
+                                      src={card.imageUrl}
+                                      alt={card.imageAlt ?? card.label}
+                                      draggable={false}
+                                    />
+                                  )}
+                                  <strong style={{ fontSize: '1rem' }}>
+                                    {card?.label ?? `Spiller ${idx + 1}`}
+                                  </strong>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
             <div className="surface stack-md">
               <div className="row-between">
                 <h2 style={{ fontSize: '1.25rem' }}>Sanntids rekkefølge</h2>
@@ -708,6 +1115,7 @@ export function HostView() {
                 })}
               </div>
             </div>
+            )}
           </section>
         )}
 
@@ -733,12 +1141,55 @@ export function HostView() {
                 Fasit · Runde {room.roundNumber}
               </span>
               <h1 style={{ color: '#ffffff', fontSize: 'clamp(1.75rem, 5vw, 2.5rem)' }}>
-                {evaluation.correctCount} av {evaluation.totalPlayers} riktig plassert!
+                {isSimultaneousTeams
+                  ? 'Fasit avslørt for alle lag!'
+                  : isTurnTeams && activeTurnTeam
+                    ? `${activeTurnTeam.name} fikk +${evaluation.correctCount} poeng!`
+                    : `${evaluation.correctCount} av ${evaluation.totalPlayers} riktig plassert!`}
               </h1>
               <p style={{ opacity: 0.9 }}>
                 {room.activeRoundTitle} ({room.activeRoundDirection ?? 'Lavest → Høyest'})
               </p>
             </div>
+
+            {isTeamMode && sortedLeaderboard.length > 0 && (
+              <section className="surface stack-md" aria-label="Poengtavle">
+                <div className="row-between">
+                  <div className="row" style={{ gap: '8px' }}>
+                    <Trophy size={20} color="var(--accent)" aria-hidden="true" />
+                    <h2 style={{ fontSize: '1.25rem' }}>Poengtavle</h2>
+                  </div>
+                  <span className="badge">1 poeng per riktig kort</span>
+                </div>
+                <div className="scoreboard-list">
+                  {sortedLeaderboard.map((team, rankIdx) => {
+                    const earned = roundPointsByTeamId[team.id] ?? 0;
+                    return (
+                      <div
+                        key={team.id}
+                        className="scoreboard-row"
+                        style={{ borderLeft: `6px solid ${team.color}` }}
+                      >
+                        <div className="row" style={{ gap: '12px' }}>
+                          <span className="slot-rank slot-rank--locked tabular">
+                            #{rankIdx + 1}
+                          </span>
+                          <strong style={{ fontSize: '1.125rem' }}>{team.name}</strong>
+                        </div>
+                        <div className="row" style={{ gap: '10px' }}>
+                          {earned > 0 && (
+                            <span className="badge badge--success tabular">+{earned} p</span>
+                          )}
+                          <span className="badge badge--dark tabular" style={{ fontSize: '1rem' }}>
+                            {team.score} poeng
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
 
             <div className="row">
               <button
@@ -746,10 +1197,16 @@ export function HostView() {
                 className="btn btn--primary btn--lg"
                 style={{ flex: '1 1 240px' }}
                 onClick={handleStartOrNextRound}
-                disabled={players.length < 2 || actionBusy !== null}
+                disabled={!canStartRound || actionBusy !== null}
               >
                 <SkipForward size={20} aria-hidden="true" />
-                <span>{actionBusy === 'start' ? 'Starter neste…' : 'Neste runde'}</span>
+                <span>
+                  {actionBusy === 'start'
+                    ? 'Starter neste…'
+                    : isTurnTeams && nextTurnTeam
+                      ? `Neste runde (${nextTurnTeam.name} sin tur)`
+                      : 'Neste runde'}
+                </span>
               </button>
 
               <button

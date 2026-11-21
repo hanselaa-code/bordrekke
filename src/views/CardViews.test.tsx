@@ -64,6 +64,10 @@ function buildRoomState(
     id: 'ABC234',
     hostUid: 'host-1',
     status,
+    gameMode: 'coop',
+    teams: [],
+    activeTeamIndex: 0,
+    lastScoredRound: 0,
     roundNumber: 1,
     activeRoundId: 'historical-events-1',
     activeRoundTitle: options.title ?? 'Historiske begivenheter',
@@ -76,6 +80,7 @@ function buildRoomState(
     room,
     players,
     evaluation: evaluateRound(players),
+    teamEvaluations: {},
     loading: false,
     error: null,
   };

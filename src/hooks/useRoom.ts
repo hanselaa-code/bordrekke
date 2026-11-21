@@ -7,27 +7,57 @@ import {
   type Timestamp,
 } from 'firebase/firestore';
 import { evaluateRound } from '../engine/ranking';
+import { buildDefaultTeams, evaluateByTeam } from '../engine/teams';
 import { subscribeP2PRoom } from '../engine/p2pBackend';
 import { ensureAnonymousUser } from '../firebase/auth';
 import { isFirebaseConfigured, requireFirestore } from '../firebase/config';
 import type {
   AssignedCard,
+  GameMode,
   PlayerDoc,
   RoomDoc,
   RoomStatus,
   RoundEvaluation,
+  TeamConfig,
 } from '../types/game';
 
 export interface UseRoomResult {
   room: RoomDoc | null;
   players: PlayerDoc[];
   evaluation: RoundEvaluation;
+  teamEvaluations: Record<string, RoundEvaluation>;
   loading: boolean;
   error: string | null;
 }
 
 function isRoomStatus(value: unknown): value is RoomStatus {
   return value === 'lobby' || value === 'playing' || value === 'revealed';
+}
+
+function isGameMode(value: unknown): value is GameMode {
+  return value === 'coop' || value === 'teams-simultaneous' || value === 'teams-turn';
+}
+
+function parseTeams(value: unknown): TeamConfig[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const parsed: TeamConfig[] = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const item = value[i];
+    if (item && typeof item === 'object') {
+      const rec = item as Record<string, unknown>;
+      if (typeof rec.id === 'string' && typeof rec.name === 'string') {
+        parsed.push({
+          id: rec.id,
+          name: rec.name,
+          color: typeof rec.color === 'string' ? rec.color : '#2563EB',
+          score: typeof rec.score === 'number' && Number.isFinite(rec.score) ? rec.score : 0,
+        });
+      }
+    }
+  }
+  return parsed;
 }
 
 function asTimestampOrNull(value: unknown): Timestamp | null {
@@ -76,10 +106,25 @@ export function parseAssignedCard(value: unknown): AssignedCard | null {
 }
 
 function parseRoomDoc(id: string, data: DocumentData): RoomDoc {
+  const gameMode: GameMode = isGameMode(data.gameMode) ? data.gameMode : 'coop';
+  const rawTeams = parseTeams(data.teams);
+  const teams =
+    gameMode !== 'coop' && rawTeams.length === 0 ? buildDefaultTeams(2) : rawTeams;
+
   return {
     id,
     hostUid: typeof data.hostUid === 'string' ? data.hostUid : '',
     status: isRoomStatus(data.status) ? data.status : 'lobby',
+    gameMode,
+    teams,
+    activeTeamIndex:
+      typeof data.activeTeamIndex === 'number' && Number.isFinite(data.activeTeamIndex)
+        ? Math.max(0, Math.floor(data.activeTeamIndex))
+        : 0,
+    lastScoredRound:
+      typeof data.lastScoredRound === 'number' && Number.isFinite(data.lastScoredRound)
+        ? Math.max(0, Math.floor(data.lastScoredRound))
+        : 0,
     roundNumber: typeof data.roundNumber === 'number' ? data.roundNumber : 0,
     activeRoundId: typeof data.activeRoundId === 'string' ? data.activeRoundId : null,
     activeRoundTitle: typeof data.activeRoundTitle === 'string' ? data.activeRoundTitle : null,
@@ -94,6 +139,7 @@ function parsePlayerDoc(id: string, data: DocumentData): PlayerDoc {
   return {
     uid: typeof data.uid === 'string' ? data.uid : id,
     deviceId: typeof data.deviceId === 'string' && data.deviceId.trim().length > 0 ? data.deviceId : null,
+    teamId: typeof data.teamId === 'string' && data.teamId.trim().length > 0 ? data.teamId : null,
     joinedAt: asTimestampOrNull(data.joinedAt),
     connected: typeof data.connected === 'boolean' ? data.connected : true,
     card: parseAssignedCard(data.card),
@@ -276,11 +322,16 @@ export function useRoom(roomId: string | undefined): UseRoomResult {
   const error = !normalizedRoomId ? null : (activeState?.error ?? null);
 
   const evaluation = useMemo(() => evaluateRound(players), [players]);
+  const teamEvaluations = useMemo(
+    () => (room && room.teams.length > 0 ? evaluateByTeam(room.teams, players) : {}),
+    [room, players],
+  );
 
   return {
     room,
     players,
     evaluation,
+    teamEvaluations,
     loading,
     error,
   };

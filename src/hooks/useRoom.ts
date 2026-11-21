@@ -93,6 +93,7 @@ function parseRoomDoc(id: string, data: DocumentData): RoomDoc {
 function parsePlayerDoc(id: string, data: DocumentData): PlayerDoc {
   return {
     uid: typeof data.uid === 'string' ? data.uid : id,
+    deviceId: typeof data.deviceId === 'string' && data.deviceId.trim().length > 0 ? data.deviceId : null,
     joinedAt: asTimestampOrNull(data.joinedAt),
     connected: typeof data.connected === 'boolean' ? data.connected : true,
     card: parseAssignedCard(data.card),

@@ -723,6 +723,30 @@ export async function p2pResetGame(roomId: string): Promise<void> {
   broadcastHostState(activeHost);
 }
 
+export async function p2pRemovePlayerFromRoom(
+  roomId: string,
+  playerUid: string,
+): Promise<void> {
+  const normalizedRoomId = normalizeRoomId(roomId);
+  if (!activeHost || activeHost.roomId !== normalizedRoomId) {
+    throw new Error('Du er ikke aktiv vert for dette rommet.');
+  }
+  activeHost.players.delete(playerUid);
+  const conn = activeHost.connections.get(playerUid);
+  if (conn) {
+    activeHost.connections.delete(playerUid);
+    activeHost.connToUid.delete(conn);
+  }
+  broadcastHostState(activeHost);
+}
+
+export async function p2pCloseRoom(roomId: string): Promise<void> {
+  const normalizedRoomId = normalizeRoomId(roomId);
+  if (activeHost && activeHost.roomId === normalizedRoomId) {
+    cleanupHost();
+  }
+}
+
 /**
  * Abonnerer på sanntidsendringer for et P2P-rom (fungerer både for Host og Mobil).
  */

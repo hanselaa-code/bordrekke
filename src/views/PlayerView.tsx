@@ -8,7 +8,7 @@ import {
   Users,
   XCircle,
 } from 'lucide-react';
-import { ensureAnonymousUser } from '../firebase/auth';
+import { ensureAnonymousUser, getStableDeviceId } from '../firebase/auth';
 import {
   joinRoomAsPlayer,
   lockPlayerPosition,
@@ -36,6 +36,7 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
   const [joinError, setJoinError] = useState<string | null>(null);
   const [lockBusy, setLockBusy] = useState(false);
   const [revealedRoundKey, setRevealedRoundKey] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   const joining = Boolean(normalizedRoomId) && joinedRoomId !== normalizedRoomId && !joinError;
 
@@ -50,7 +51,7 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
         const user = await ensureAnonymousUser();
         if (cancelled) return;
         setPlayerUid(user.uid);
-        await joinRoomAsPlayer(targetRoomId, user.uid);
+        await joinRoomAsPlayer(targetRoomId, user.uid, getStableDeviceId());
         if (!cancelled) {
           setJoinError(null);
           setJoinedRoomId(targetRoomId);
@@ -72,7 +73,7 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [normalizedRoomId]);
+  }, [normalizedRoomId, retryCount]);
 
   const myEntry = playerUid ? evaluation.byUid[playerUid] : undefined;
   const myPlayer = myEntry?.player ?? players.find((p) => p.uid === playerUid);
@@ -295,8 +296,20 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
       </header>
 
       {(joinError || error) && (
-        <div className="alert" role="alert">
+        <div className="alert stack-sm" role="alert">
           <span>{joinError ?? error}</span>
+          <button
+            type="button"
+            className="btn btn--secondary btn--full"
+            onClick={() => {
+              setJoinError(null);
+              setJoinedRoomId(null);
+              setRetryCount((c) => c + 1);
+            }}
+          >
+            <RotateCcw size={16} aria-hidden="true" />
+            <span>Prøv å koble til på nytt</span>
+          </button>
         </div>
       )}
 

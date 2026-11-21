@@ -50,6 +50,8 @@ export interface RoomDoc {
  */
 export interface PlayerDoc {
   uid: string;
+  /** Stabil enhets-ID per nettleser/telefon for å hindre duplikate deltakere ved ny QR-skanning. */
+  deviceId?: string | null;
   joinedAt: Timestamp | null;
   connected: boolean;
   card: AssignedCard | null;

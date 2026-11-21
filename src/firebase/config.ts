@@ -1,5 +1,14 @@
 import { getApp, getApps, initializeApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
-import { connectAuthEmulator, getAuth, type Auth } from 'firebase/auth';
+import {
+  browserLocalPersistence,
+  browserSessionPersistence,
+  connectAuthEmulator,
+  getAuth,
+  indexedDBLocalPersistence,
+  initializeAuth,
+  inMemoryPersistence,
+  type Auth,
+} from 'firebase/auth';
 import { connectFirestoreEmulator, getFirestore, type Firestore } from 'firebase/firestore';
 
 const REQUIRED_FIREBASE_ENV_KEYS = [
@@ -81,7 +90,18 @@ if (isFirebaseConfigured) {
 
   appInstance = getApps().length > 0 ? getApp() : initializeApp(firebaseOptions);
   dbInstance = getFirestore(appInstance);
-  authInstance = getAuth(appInstance);
+  try {
+    authInstance = initializeAuth(appInstance, {
+      persistence: [
+        indexedDBLocalPersistence,
+        browserLocalPersistence,
+        browserSessionPersistence,
+        inMemoryPersistence,
+      ],
+    });
+  } catch {
+    authInstance = getAuth(appInstance);
+  }
 
   if (useFirebaseEmulator) {
     connectEmulatorsOnce(dbInstance, authInstance);

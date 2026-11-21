@@ -1,4 +1,5 @@
 import {
+  deleteDoc,
   doc,
   getDoc,
   serverTimestamp,
@@ -10,9 +11,11 @@ import { buildCardsForPlayerCount, getRoundByNumber } from '../data/mockRounds';
 import { isFirebaseConfigured, requireFirestore } from '../firebase/config';
 import type { PlayerDoc } from '../types/game';
 import {
+  p2pCloseRoom,
   p2pCreateRoom,
   p2pJoinRoomAsPlayer,
   p2pLockPlayerPosition,
+  p2pRemovePlayerFromRoom,
   p2pResetAllLocks,
   p2pResetGame,
   p2pReturnToLobby,
@@ -69,6 +72,7 @@ export async function createRoom(hostUid: string): Promise<string> {
 export async function joinRoomAsPlayer(
   roomId: string,
   playerUid: string,
+  deviceId?: string | null,
 ): Promise<void> {
   if (!isFirebaseConfigured) {
     return p2pJoinRoomAsPlayer(roomId, playerUid);
@@ -89,18 +93,23 @@ export async function joinRoomAsPlayer(
     );
   }
 
+  const normalizedDeviceId =
+    typeof deviceId === 'string' && deviceId.trim().length > 0 ? deviceId.trim().slice(0, 128) : null;
+
   const playerRef = doc(db, 'rooms', normalizedRoomId, 'players', playerUid);
   const playerSnap = await getDoc(playerRef);
 
   if (playerSnap.exists()) {
     await updateDoc(playerRef, {
       connected: true,
+      ...(normalizedDeviceId ? { deviceId: normalizedDeviceId } : {}),
     });
     return;
   }
 
   await setDoc(playerRef, {
     uid: playerUid,
+    ...(normalizedDeviceId ? { deviceId: normalizedDeviceId } : {}),
     joinedAt: serverTimestamp(),
     connected: true,
     card: null,
@@ -334,6 +343,45 @@ export async function resetGame(
       lockedClientAt: null,
     });
   });
+
+  await batch.commit();
+}
+
+/**
+ * Fjerner én spiller fra rommet (brukes til automatisk avduplisering per telefon og manuell fjerning av vert).
+ */
+export async function removePlayerFromRoom(
+  roomId: string,
+  playerUid: string,
+): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pRemovePlayerFromRoom(roomId, playerUid);
+  }
+
+  const normalizedRoomId = normalizeRoomId(roomId);
+  const db = requireFirestore();
+  await deleteDoc(doc(db, 'rooms', normalizedRoomId, 'players', playerUid));
+}
+
+/**
+ * Avslutter og sletter rommet fullstendig slik at spillmester kan starte et helt nytt spill/rom.
+ */
+export async function closeRoom(
+  roomId: string,
+  players: readonly PlayerDoc[],
+): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pCloseRoom(roomId);
+  }
+
+  const normalizedRoomId = normalizeRoomId(roomId);
+  const db = requireFirestore();
+  const batch = writeBatch(db);
+
+  players.forEach((player) => {
+    batch.delete(doc(db, 'rooms', normalizedRoomId, 'players', player.uid));
+  });
+  batch.delete(doc(db, 'rooms', normalizedRoomId));
 
   await batch.commit();
 }

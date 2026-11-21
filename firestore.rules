@@ -1,5 +1,28 @@
 rules_version = '2';
 
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// Collection: rooms
+// Document ID: {roomId}
+// Fields:
+//   - hostUid: string (required, immutable by non-host; must match creator UID)
+//   - status: string (required; starts as 'lobby', e.g. 'lobby' | 'playing' | 'revealed')
+//
+// Subcollection: rooms/{roomId}/players
+// Document ID: {playerId} (matches player's Firebase Auth UID)
+// Fields:
+//   - uid: string (required, immutable; matches playerId)
+//   - joinedAt: timestamp (required)
+//   - connected: bool (required)
+//   - card: any/null (null on self-create; managed by host)
+//   - lockedAt: timestamp/null (null on self-create; cannot be modified by player once room is 'revealed')
+//   - lockedClientAt: number/timestamp/null (optional, null on self-create; cannot be modified by player once room is 'revealed')
+//   - deviceId: string/null (optional; string max 128 chars or null)
+//
+// ===============================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
     function isSignedIn() {
@@ -16,6 +39,15 @@ service cloud.firestore {
         && getRoom(roomId).data.hostUid == request.auth.uid;
     }
 
+    function isValidOptionalDeviceId() {
+      return !('deviceId' in request.resource.data)
+        || request.resource.data.deviceId == null
+        || (
+          request.resource.data.deviceId is string
+          && request.resource.data.deviceId.size() <= 128
+        );
+    }
+
     function isValidSelfPlayerCreate(playerId) {
       return request.auth.uid == playerId
         && request.resource.data.keys().hasOnly([
@@ -24,7 +56,8 @@ service cloud.firestore {
           'connected',
           'card',
           'lockedAt',
-          'lockedClientAt'
+          'lockedClientAt',
+          'deviceId'
         ])
         && request.resource.data.uid == playerId
         && request.resource.data.card == null
@@ -32,14 +65,16 @@ service cloud.firestore {
         && (
           !('lockedClientAt' in request.resource.data)
           || request.resource.data.lockedClientAt == null
-        );
+        )
+        && isValidOptionalDeviceId();
     }
 
     function isValidSelfPlayerUpdate(roomId, playerId) {
       let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
       return request.auth.uid == playerId
         && request.resource.data.uid == resource.data.uid
-        && changedKeys.hasOnly(['connected', 'lockedAt', 'lockedClientAt'])
+        && changedKeys.hasOnly(['connected', 'lockedAt', 'lockedClientAt', 'deviceId'])
+        && isValidOptionalDeviceId()
         && (
           !changedKeys.hasAny(['lockedAt', 'lockedClientAt'])
           || (

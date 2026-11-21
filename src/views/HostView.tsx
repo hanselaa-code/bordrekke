@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
   Check,
   CheckCircle2,
   Copy,
   Eye,
+  LogOut,
   Play,
   RotateCcw,
   SkipForward,
   Smartphone,
   Users,
+  X,
   XCircle,
 } from 'lucide-react';
 import { MOCK_ROUNDS, getRoundByNumber } from '../data/mockRounds';
@@ -18,6 +20,9 @@ import { ensureAnonymousUser } from '../firebase/auth';
 import { isFirebaseConfigured } from '../firebase/config';
 import { ensureP2PHostRoom } from '../engine/p2pBackend';
 import {
+  closeRoom,
+  createRoom,
+  removePlayerFromRoom,
   resetAllLocks,
   resetGame,
   returnToLobby,
@@ -29,8 +34,10 @@ import { useWakeLock } from '../hooks/useWakeLock';
 import { WakeLockBadge } from '../components/WakeLockBadge';
 
 export function HostView() {
+  const navigate = useNavigate();
   const { roomId } = useParams<{ roomId: string }>();
   const normalizedRoomId = roomId?.trim().toUpperCase();
+  const dedupInFlightRef = useRef<Set<string>>(new Set());
 
   const { room, players, evaluation, loading, error } = useRoom(normalizedRoomId);
   const wakeLock = useWakeLock(true);
@@ -169,6 +176,88 @@ export function HostView() {
     await runAction('reset-game', () => resetGame(room.id, players));
   }
 
+  async function handleRemovePlayer(targetUid: string) {
+    if (!room) return;
+    await runAction(`remove-${targetUid}`, () => removePlayerFromRoom(room.id, targetUid));
+  }
+
+  async function handleEndGameToHome() {
+    if (actionBusy) return;
+    setActionError(null);
+    setActionBusy('end-game');
+    try {
+      if (room) {
+        await closeRoom(room.id, players);
+      }
+    } catch (err) {
+      console.error('Kunne ikke lukke rommet rent:', err);
+    } finally {
+      setActionBusy(null);
+      navigate('/');
+    }
+  }
+
+  async function handleStartFreshRoom() {
+    if (actionBusy) return;
+    setActionError(null);
+    setActionBusy('fresh-room');
+    try {
+      const user = await ensureAnonymousUser();
+      if (room) {
+        await closeRoom(room.id, players).catch(() => {});
+      }
+      const nextCode = await createRoom(user.uid);
+      navigate(`/host/${nextCode}`);
+    } catch (err) {
+      console.error('Kunne ikke opprette nytt rom:', err);
+      setActionError(
+        err instanceof Error ? err.message : 'Kunne ikke starte et nytt spillrom. Prøv igjen.'
+      );
+    } finally {
+      setActionBusy(null);
+    }
+  }
+
+  // Automatisk avduplisering: kun én deltakelse per telefon (deviceId) i rommet
+  useEffect(() => {
+    if (!room || !hostUid || room.hostUid !== hostUid) return;
+
+    const byDevice = new Map<string, typeof players>();
+    for (const player of players) {
+      const devId = player.deviceId?.trim();
+      if (!devId) continue;
+      const list = byDevice.get(devId);
+      if (list) {
+        list.push(player);
+      } else {
+        byDevice.set(devId, [player]);
+      }
+    }
+
+    for (const group of byDevice.values()) {
+      if (group.length <= 1) continue;
+      // Behold den nyeste (eller den som allerede har kort), fjern eldre duplikater
+      const sorted = [...group].sort((a, b) => {
+        const aHasCard = a.card ? 1 : 0;
+        const bHasCard = b.card ? 1 : 0;
+        if (aHasCard !== bHasCard) return bHasCard - aHasCard;
+        const aTime = a.joinedAt?.toMillis() ?? 0;
+        const bTime = b.joinedAt?.toMillis() ?? 0;
+        return bTime - aTime;
+      });
+      const duplicates = sorted.slice(1);
+      for (const dup of duplicates) {
+        if (dedupInFlightRef.current.has(dup.uid)) continue;
+        dedupInFlightRef.current.add(dup.uid);
+        void removePlayerFromRoom(room.id, dup.uid)
+          .catch((err) => console.error('Kunne ikke fjerne duplikat enhet:', err))
+          .finally(() => {
+            dedupInFlightRef.current.delete(dup.uid);
+          });
+      }
+    }
+  }, [room, hostUid, players]);
+
   const playersWithCards = useMemo(
     () => evaluation.rankedPlayers.filter((entry) => entry.player.card !== null),
     [evaluation.rankedPlayers]
@@ -205,6 +294,16 @@ export function HostView() {
                 {players.length} {players.length === 1 ? 'spiller' : 'spillere'}
               </span>
             </span>
+            <button
+              type="button"
+              className="btn btn--secondary"
+              style={{ minHeight: '36px', padding: '6px 12px', fontSize: '0.875rem' }}
+              onClick={handleEndGameToHome}
+              disabled={actionBusy !== null}
+            >
+              <LogOut size={15} aria-hidden="true" />
+              <span>{actionBusy === 'end-game' ? 'Avslutter…' : 'Avslutt spill'}</span>
+            </button>
           </div>
         </header>
 
@@ -318,6 +417,16 @@ export function HostView() {
                       <span className="device-chip-dot" aria-hidden="true" />
                       <Smartphone size={16} color="var(--ink-muted)" aria-hidden="true" />
                       <span className="tabular">Mobil {index + 1}</span>
+                      <button
+                        type="button"
+                        className="device-chip-remove"
+                        aria-label={`Fjern Mobil ${index + 1}`}
+                        title={`Fjern Mobil ${index + 1}`}
+                        onClick={() => handleRemovePlayer(player.uid)}
+                        disabled={actionBusy !== null}
+                      >
+                        <X size={14} aria-hidden="true" />
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -358,6 +467,19 @@ export function HostView() {
                     </span>
                   </button>
                 )}
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--full"
+                  onClick={handleStartFreshRoom}
+                  disabled={actionBusy !== null}
+                >
+                  <LogOut size={16} aria-hidden="true" />
+                  <span>
+                    {actionBusy === 'fresh-room'
+                      ? 'Oppretter nytt rom…'
+                      : 'Start helt nytt spillrom (ny QR-kode)'}
+                  </span>
+                </button>
                 {players.length < 2 && (
                   <p
                     style={{
@@ -512,6 +634,15 @@ export function HostView() {
                 >
                   <SkipForward size={18} aria-hidden="true" />
                   <span>{actionBusy === 'start' ? 'Starter…' : 'Ny runde'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--lg"
+                  onClick={handleReturnToLobby}
+                  disabled={actionBusy !== null}
+                >
+                  <span>Tilbake til lobby</span>
                 </button>
 
                 <button

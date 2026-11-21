@@ -560,3 +560,43 @@ describe('getRoundByNumber med valgte spørsmål', () => {
     expect(getRoundByNumber(3, selected).id).toBe('celebrity-ages-1');
   });
 });
+
+describe('Flest mål på det norske landslaget (MOCK_ROUNDS[12])', () => {
+  const norwayRound = MOCK_ROUNDS[12];
+
+  it('ligger som runde 13 med 10 spillere og retning Færrest → Flest', () => {
+    expect(norwayRound.id).toBe('norway-top-scorers-1');
+    expect(norwayRound.title).toBe('Flest mål på det norske landslaget');
+    expect(norwayRound.directionLabel).toBe('Færrest → Flest');
+    expect(norwayRound.cards).toHaveLength(10);
+  });
+
+  it('har unike måltall og lekkasjesikrede felt uten sifre', () => {
+    const goals = norwayRound.cards.map((card) => card.answerValue);
+    expect(new Set(goals).size).toBe(10);
+    expect(new Set(norwayRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of norwayRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.answerDisplay).toBe(`${card.answerValue} mål`);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/landslaget\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/landslaget/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of norwayRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});

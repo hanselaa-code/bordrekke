@@ -29,11 +29,22 @@ export interface AssignedCard {
   answerDisplay: string;
 }
 
+export type RoundCategory =
+  | 'Mat'
+  | 'Sport'
+  | 'Musikk'
+  | 'Film'
+  | 'Vitenskap'
+  | 'Geografi'
+  | 'Historie'
+  | 'Lett blanding';
+
 /**
- * Spillrunde som inneholder tittel, sorteringsretning og kortsett.
+ * Spillrunde som inneholder kategori, tittel, sorteringsretning og kortsett.
  */
 export interface MockRound {
   id: string;
+  category: RoundCategory;
   title: string;
   directionLabel: string;
   cards: AssignedCard[];

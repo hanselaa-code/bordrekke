@@ -1,12 +1,23 @@
-import type { AssignedCard, MockRound } from '../types/game';
+import type { AssignedCard, MockRound, RoundCategory } from '../types/game';
+
+export const ROUND_CATEGORIES: readonly RoundCategory[] = [
+  'Mat',
+  'Sport',
+  'Musikk',
+  'Film',
+  'Vitenskap',
+  'Geografi',
+  'Historie',
+  'Lett blanding',
+];
 
 /**
- * Spillrunder: starter med bildebasert historierunde, etterfulgt av plassholder-runder
- * for videre testing og sykling av spillmotoren.
+ * Spillrunder inndelt i kategorier.
  */
 export const MOCK_ROUNDS: MockRound[] = [
   {
     id: 'historical-events-1',
+    category: 'Historie',
     title: 'Historiske begivenheter',
     directionLabel: 'Eldst → Nyest',
     cards: [
@@ -104,6 +115,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'celebrity-ages-1',
+    category: 'Lett blanding',
     title: 'Kjendiser etter alder',
     directionLabel: 'Eldst → Yngst',
     cards: [
@@ -201,6 +213,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'music-hits-1980-2000',
+    category: 'Musikk',
     title: 'Hits 1980–2000',
     directionLabel: 'Eldst → Nyest',
     cards: [
@@ -298,6 +311,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'countries-by-area-1',
+    category: 'Geografi',
     title: 'Land etter størrelse',
     directionLabel: 'Minst → Størst',
     cards: [
@@ -395,6 +409,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'social-media-norway-1',
+    category: 'Lett blanding',
     title: 'Sosiale medier i Norge (daglig bruk)',
     directionLabel: 'Minst → Mest',
     cards: [
@@ -492,6 +507,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'norwegian-slang-1',
+    category: 'Lett blanding',
     title: 'Norske slangord og uttrykk',
     directionLabel: 'Eldst → Nyest',
     cards: [
@@ -569,6 +585,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'deadliest-diseases-1',
+    category: 'Vitenskap',
     title: 'Dødeligste sykdommer i historien',
     directionLabel: 'Færrest → Flest',
     cards: [
@@ -666,6 +683,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'food-shelf-life-1',
+    category: 'Mat',
     title: 'Matvarer og holdbarhet',
     directionLabel: 'Kortest → Lengst',
     cards: [
@@ -763,6 +781,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'organism-lifespan-1',
+    category: 'Vitenskap',
     title: 'Høyest mulig levealder',
     directionLabel: 'Kortest → Lengst',
     cards: [
@@ -860,6 +879,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'food-calories-1',
+    category: 'Mat',
     title: 'Kalorier per 100 g matvare',
     directionLabel: 'Færrest → Flest',
     cards: [
@@ -957,6 +977,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'olympic-golds-1',
+    category: 'Sport',
     title: 'Flest OL-gull (sommer og vinter)',
     directionLabel: 'Færrest → Flest',
     cards: [
@@ -1054,6 +1075,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'best-selling-albums-1',
+    category: 'Musikk',
     title: 'Mest solgte album gjennom tidene',
     directionLabel: 'Færrest → Flest',
     cards: [
@@ -1151,6 +1173,7 @@ export const MOCK_ROUNDS: MockRound[] = [
   },
   {
     id: 'norway-top-scorers-1',
+    category: 'Sport',
     title: 'Flest mål på det norske landslaget',
     directionLabel: 'Færrest → Flest',
     cards: [

@@ -1446,3 +1446,122 @@ input {
   border: 1.5px solid var(--border-strong);
   background: var(--bg-subtle);
 }
+
+/* ==========================================================================
+   Kategoribasert spørsmålsvelger for spillmester
+   ========================================================================== */
+
+.category-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.category-card {
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+
+.category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 6px var(--space-3) 6px var(--space-2);
+}
+
+.category-toggle-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 4px;
+  border: none;
+  background: transparent;
+  color: var(--ink-primary);
+  font-family: var(--font-body);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: left;
+}
+
+.category-toggle-btn:hover {
+  color: var(--accent);
+}
+
+.category-name {
+  margin-right: 4px;
+}
+
+.category-all-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink-secondary);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: var(--radius-sm);
+  user-select: none;
+}
+
+.category-all-label .round-picker-checkbox {
+  margin-top: 0;
+}
+
+.category-questions {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+}
+
+.category-question-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 10px var(--space-4);
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
+  transition: background-color 0.12s ease;
+}
+
+.category-question-row:last-child {
+  border-bottom: none;
+}
+
+.category-question-row:hover {
+  background: var(--bg-subtle);
+}
+
+.category-question-row--selected {
+  background: rgba(234, 88, 12, 0.05);
+}
+
+.category-question-row .round-picker-checkbox {
+  margin-top: 0;
+}
+
+.category-question-title {
+  flex: 1;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+}
+
+.category-question-dir {
+  font-size: 0.75rem;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+
+.category-empty {
+  padding: 12px var(--space-4);
+  font-size: 0.875rem;
+  color: var(--ink-muted);
+  font-style: italic;
+}

@@ -4,6 +4,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import {
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Copy,
   Eye,
   LogOut,
@@ -16,7 +18,7 @@ import {
   X,
   XCircle,
 } from 'lucide-react';
-import { MOCK_ROUNDS, getRoundByNumber } from '../data/mockRounds';
+import { MOCK_ROUNDS, ROUND_CATEGORIES, getRoundByNumber } from '../data/mockRounds';
 import { ensureAnonymousUser } from '../firebase/auth';
 import { isFirebaseConfigured } from '../firebase/config';
 import { ensureP2PHostRoom } from '../engine/p2pBackend';
@@ -32,7 +34,7 @@ import {
   startRound,
 } from '../engine/roomService';
 import { buildDefaultTeams, computeUpdatedTeamScores } from '../engine/teams';
-import type { GameMode, TeamConfig } from '../types/game';
+import type { GameMode, RoundCategory, TeamConfig } from '../types/game';
 import { useRoom } from '../hooks/useRoom';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { WakeLockBadge } from '../components/WakeLockBadge';
@@ -80,6 +82,30 @@ export function HostView() {
       // Ignorer lagringsfeil
     }
   }, [storageKey, selectedRoundIds]);
+
+  const [expandedCategories, setExpandedCategories] = useState<RoundCategory[]>([]);
+
+  function toggleCategoryExpanded(category: RoundCategory) {
+    setExpandedCategories((prev) =>
+      prev.includes(category) ? prev.filter((c) => c !== category) : [...prev, category]
+    );
+  }
+
+  function toggleCategorySelection(category: RoundCategory) {
+    const categoryIds = MOCK_ROUNDS.filter((r) => r.category === category).map((r) => r.id);
+    if (categoryIds.length === 0) return;
+    setSelectedRoundIds((prev) => {
+      const allSelected = categoryIds.every((id) => prev.includes(id));
+      if (allSelected) {
+        return prev.filter((id) => !categoryIds.includes(id));
+      }
+      const next = new Set(prev);
+      for (const id of categoryIds) {
+        next.add(id);
+      }
+      return Array.from(next);
+    });
+  }
 
   function toggleRoundSelection(roundId: string) {
     setSelectedRoundIds((prev) =>
@@ -844,29 +870,83 @@ export function HostView() {
               </div>
             </div>
 
-            <div className="round-picker-grid">
-              {MOCK_ROUNDS.map((roundOption, idx) => {
-                const isSelected = selectedRoundIds.includes(roundOption.id);
+            <div className="category-list">
+              {ROUND_CATEGORIES.map((category) => {
+                const categoryRounds = MOCK_ROUNDS.filter((r) => r.category === category);
+                const selectedInCat = categoryRounds.filter((r) =>
+                  selectedRoundIds.includes(r.id)
+                ).length;
+                const allInCatSelected =
+                  categoryRounds.length > 0 && selectedInCat === categoryRounds.length;
+                const isExpanded = expandedCategories.includes(category);
+
                 return (
-                  <label
-                    key={roundOption.id}
-                    className={`round-picker-item ${
-                      isSelected ? 'round-picker-item--selected' : ''
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      className="round-picker-checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleRoundSelection(roundOption.id)}
-                    />
-                    <span className="round-picker-meta">
-                      <span className="round-picker-title">
-                        {idx + 1}. {roundOption.title}
-                      </span>
-                      <span className="round-picker-sub">{roundOption.directionLabel}</span>
-                    </span>
-                  </label>
+                  <div key={category} className="category-card">
+                    <div className="category-header">
+                      <button
+                        type="button"
+                        className="category-toggle-btn"
+                        aria-expanded={isExpanded}
+                        onClick={() => toggleCategoryExpanded(category)}
+                      >
+                        {isExpanded ? (
+                          <ChevronDown size={18} aria-hidden="true" />
+                        ) : (
+                          <ChevronRight size={18} aria-hidden="true" />
+                        )}
+                        <span className="category-name">{category}</span>
+                        <span className="badge tabular" style={{ fontSize: '0.75rem' }}>
+                          {selectedInCat}/{categoryRounds.length}
+                        </span>
+                      </button>
+
+                      <label className="category-all-label">
+                        <input
+                          type="checkbox"
+                          className="round-picker-checkbox"
+                          checked={allInCatSelected}
+                          disabled={categoryRounds.length === 0}
+                          onChange={() => toggleCategorySelection(category)}
+                        />
+                        <span>Alle</span>
+                      </label>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="category-questions">
+                        {categoryRounds.length === 0 ? (
+                          <p className="category-empty">
+                            Ingen spørsmål i denne kategorien ennå.
+                          </p>
+                        ) : (
+                          categoryRounds.map((roundOption) => {
+                            const isSelected = selectedRoundIds.includes(roundOption.id);
+                            return (
+                              <label
+                                key={roundOption.id}
+                                className={`category-question-row ${
+                                  isSelected ? 'category-question-row--selected' : ''
+                                }`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="round-picker-checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleRoundSelection(roundOption.id)}
+                                />
+                                <span className="category-question-title">
+                                  {roundOption.title}
+                                </span>
+                                <span className="category-question-dir">
+                                  {roundOption.directionLabel}
+                                </span>
+                              </label>
+                            );
+                          })
+                        )}
+                      </div>
+                    )}
+                  </div>
                 );
               })}
             </div>

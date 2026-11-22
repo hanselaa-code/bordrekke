@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import type { Timestamp } from 'firebase/firestore';
 import { evaluateRound } from '../engine/ranking';
 import type { PlayerDoc } from '../types/game';
-import { MOCK_ROUNDS, getRoundByNumber } from './mockRounds';
+import { MOCK_ROUNDS, ROUND_CATEGORIES, getRoundByNumber } from './mockRounds';
 
 function createMockTimestamp(ms: number): Timestamp {
   return {
@@ -597,6 +597,25 @@ describe('Flest mål på det norske landslaget (MOCK_ROUNDS[12])', () => {
 
       expect(stats.isFile()).toBe(true);
       expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});
+
+describe('Kategorier (ROUND_CATEGORIES)', () => {
+  it('har alle 8 kategorier og hver runde tilhører en gyldig kategori', () => {
+    expect(ROUND_CATEGORIES).toEqual([
+      'Mat',
+      'Sport',
+      'Musikk',
+      'Film',
+      'Vitenskap',
+      'Geografi',
+      'Historie',
+      'Lett blanding',
+    ]);
+
+    for (const round of MOCK_ROUNDS) {
+      expect(ROUND_CATEGORIES).toContain(round.category);
     }
   });
 });

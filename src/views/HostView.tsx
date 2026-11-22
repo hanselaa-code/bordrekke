@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { QRCodeSVG } from 'qrcode.react';
 import {
+  ArrowLeft,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -10,7 +11,9 @@ import {
   Eye,
   LogOut,
   Play,
+  QrCode,
   RotateCcw,
+  Settings2,
   SkipForward,
   Smartphone,
   Trophy,
@@ -53,6 +56,7 @@ export function HostView() {
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [lobbyPhase, setLobbyPhase] = useState<'setup' | 'qr-lobby' | 'ready'>('setup');
 
   const storageKey = normalizedRoomId ? `bordrekke:selectedRounds:${normalizedRoomId}` : null;
   const [selectedRoundIds, setSelectedRoundIds] = useState<string[]>(() => {
@@ -242,11 +246,13 @@ export function HostView() {
 
   async function handleReturnToLobby() {
     if (!room) return;
+    setLobbyPhase('ready');
     await runAction('lobby', () => returnToLobby(room.id, players));
   }
 
   async function handleResetGame() {
     if (!room) return;
+    setLobbyPhase(players.length > 0 ? 'ready' : 'setup');
     await runAction('reset-game', () => resetGame(room.id, players, room.teams));
   }
 
@@ -281,6 +287,7 @@ export function HostView() {
         await closeRoom(room.id, players).catch(() => {});
       }
       const nextCode = await createRoom(user.uid);
+      setLobbyPhase('setup');
       navigate(`/host/${nextCode}`);
     } catch (err) {
       console.error('Kunne ikke opprette nytt rom:', err);
@@ -452,6 +459,8 @@ export function HostView() {
 
         {!loading && room && room.status === 'lobby' && (
           <div className="stack-md">
+            {lobbyPhase === 'setup' && (
+              <>
             <section className="surface stack-md" aria-label="Spillmodus og lagoppsett">
               <div className="row-between" style={{ flexWrap: 'wrap', gap: 'var(--space-2)' }}>
                 <div className="stack-xs" style={{ gap: '2px' }}>
@@ -557,6 +566,40 @@ export function HostView() {
                 </div>
               )}
             </section>
+              </>
+            )}
+
+            {lobbyPhase === 'qr-lobby' && (
+              <div className="stack-md">
+                <div className="surface row-between" style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+                  <div className="stack-xs" style={{ gap: '2px' }}>
+                    <span className="badge badge--accent">Spill-lobby</span>
+                    <h1 style={{ fontSize: '1.5rem' }}>
+                      {isSimultaneousTeams
+                        ? 'Skann QR-koden til ditt lag'
+                        : 'Skann QR-koden for å bli med'}
+                    </h1>
+                  </div>
+                  <div className="row" style={{ gap: 'var(--space-2)' }}>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => setLobbyPhase('setup')}
+                    >
+                      <ArrowLeft size={16} aria-hidden="true" />
+                      <span>Endre oppsett</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--primary"
+                      onClick={() => setLobbyPhase('ready')}
+                      disabled={!canStartRound || actionBusy !== null}
+                    >
+                      <Play size={18} aria-hidden="true" />
+                      <span>Start spillet</span>
+                    </button>
+                  </div>
+                </div>
 
             {isSimultaneousTeams ? (
               <section className="stack-md" aria-label="QR-koder per lag">
@@ -568,24 +611,21 @@ export function HostView() {
                       <div
                         key={team.id}
                         className="surface team-qr-card"
-                        style={{ borderTop: `6px solid ${team.color}` }}
+                        style={{ borderTop: `8px solid ${team.color}` }}
                       >
                         <div className="row-between" style={{ width: '100%' }}>
-                          <span
-                            className="team-pill"
-                            style={{ backgroundColor: team.color, color: '#ffffff' }}
-                          >
+                          <h2 className="team-qr-name" style={{ color: team.color }}>
                             {team.name}
-                          </span>
+                          </h2>
                           <span className="badge badge--dark tabular">
                             {teamPlayers.length} {teamPlayers.length === 1 ? 'mobil' : 'mobiler'}
                           </span>
                         </div>
 
-                        <div className="qr-frame" style={{ padding: '12px' }}>
+                        <div className="qr-frame" style={{ padding: '14px' }}>
                           <QRCodeSVG
                             value={teamUrl}
-                            size={176}
+                            size={220}
                             level="M"
                             bgColor="#FFFFFF"
                             fgColor="#18181B"
@@ -643,31 +683,12 @@ export function HostView() {
                   <button
                     type="button"
                     className="btn btn--primary btn--lg btn--full"
-                    onClick={handleStartOrNextRound}
+                    onClick={() => setLobbyPhase('ready')}
                     disabled={!canStartRound || actionBusy !== null}
                   >
                     <Play size={22} aria-hidden="true" />
-                    <span>
-                      {actionBusy === 'start'
-                        ? 'Deler ut kort til alle lag…'
-                        : selectedRoundIds.length === 0
-                          ? 'Velg minst 1 spørsmål'
-                          : room.roundNumber > 0
-                            ? `Start runde ${room.roundNumber + 1}: ${getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}`
-                            : `Start runde 1: ${getRoundByNumber(1, selectedRoundIds).title}`}
-                    </span>
+                    <span>Start spillet</span>
                   </button>
-                  {room.roundNumber > 0 && (
-                    <button
-                      type="button"
-                      className="btn btn--secondary btn--full"
-                      onClick={handleResetGame}
-                      disabled={actionBusy !== null}
-                    >
-                      <RotateCcw size={18} aria-hidden="true" />
-                      <span>Nullstill spill og poeng (start fra runde 1)</span>
-                    </button>
-                  )}
                   <button
                     type="button"
                     className="btn btn--secondary btn--full"
@@ -679,7 +700,7 @@ export function HostView() {
                   </button>
                   {!canStartRound && selectedRoundIds.length > 0 && (
                     <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)', textAlign: 'center' }}>
-                      Minst ett lag må ha 2 eller flere tilkoblede mobiler for å starte.
+                      Minst ett lag må ha 2 eller flere tilkoblede mobiler for å starte spillet.
                     </p>
                   )}
                 </div>
@@ -782,37 +803,12 @@ export function HostView() {
                 <button
                   type="button"
                   className="btn btn--primary btn--lg btn--full"
-                  onClick={handleStartOrNextRound}
+                  onClick={() => setLobbyPhase('ready')}
                   disabled={!canStartRound || actionBusy !== null}
                 >
                   <Play size={22} aria-hidden="true" />
-                  <span>
-                    {actionBusy === 'start'
-                      ? 'Deler ut kort…'
-                      : selectedRoundIds.length === 0
-                        ? 'Velg minst 1 spørsmål'
-                        : isTurnTeams && nextTurnTeam
-                          ? `Start runde ${room.roundNumber + 1} (${nextTurnTeam.name}): ${getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}`
-                          : room.roundNumber > 0
-                            ? `Start runde ${room.roundNumber + 1}: ${getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}`
-                            : `Start runde 1: ${getRoundByNumber(1, selectedRoundIds).title}`}
-                  </span>
+                  <span>Start spillet</span>
                 </button>
-                {room.roundNumber > 0 && (
-                  <button
-                    type="button"
-                    className="btn btn--secondary btn--full"
-                    onClick={handleResetGame}
-                    disabled={actionBusy !== null}
-                  >
-                    <RotateCcw size={18} aria-hidden="true" />
-                    <span>
-                      {actionBusy === 'reset-game'
-                        ? 'Nullstiller…'
-                        : 'Nullstill spill (start fra runde 1)'}
-                    </span>
-                  </button>
-                )}
                 <button
                   type="button"
                   className="btn btn--secondary btn--full"
@@ -834,14 +830,18 @@ export function HostView() {
                       textAlign: 'center',
                     }}
                   >
-                    Trenger minst 2 tilkoblede spillere for å starte en runde.
+                    Trenger minst 2 tilkoblede spillere for å starte spillet.
                   </p>
                 )}
               </div>
             </div>
           </section>
             )}
+              </div>
+            )}
 
+            {lobbyPhase === 'setup' && (
+              <>
           <section className="surface stack-md" aria-label="Velg spørsmål til spillet">
             <div className="row-between" style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
               <div className="stack-xs" style={{ gap: '2px' }}>
@@ -951,6 +951,147 @@ export function HostView() {
               })}
             </div>
           </section>
+
+                <div className="surface stack-sm">
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--lg btn--full"
+                    onClick={() => setLobbyPhase('qr-lobby')}
+                    disabled={selectedRoundIds.length === 0 || actionBusy !== null}
+                  >
+                    <QrCode size={22} aria-hidden="true" />
+                    <span>
+                      {selectedRoundIds.length === 0
+                        ? 'Velg minst 1 spørsmål først'
+                        : 'Klargjør spill-lobby'}
+                    </span>
+                  </button>
+                  <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)', textAlign: 'center' }}>
+                    Viser store QR-koder på storskjermen slik at deltakerne kan koble seg til
+                    {isSimultaneousTeams ? ' riktig lag' : ' rommet'}.
+                  </p>
+                </div>
+              </>
+            )}
+
+            {lobbyPhase === 'ready' && (
+              <section className="surface stack-lg" aria-label="Klar til å starte runde">
+                <div className="row-between" style={{ flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+                  <div className="stack-xs" style={{ gap: '4px' }}>
+                    <span className="badge badge--success">Klar til spill</span>
+                    <h1 style={{ fontSize: 'clamp(1.75rem, 4vw, 2.35rem)' }}>
+                      {isTeamMode ? 'Lagene er klare!' : 'Alle er klare!'}
+                    </h1>
+                  </div>
+                  <div className="row" style={{ gap: 'var(--space-2)' }}>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => setLobbyPhase('qr-lobby')}
+                    >
+                      <QrCode size={16} aria-hidden="true" />
+                      <span>Vis QR-koder</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--secondary"
+                      onClick={() => setLobbyPhase('setup')}
+                    >
+                      <Settings2 size={16} aria-hidden="true" />
+                      <span>Oppsett</span>
+                    </button>
+                  </div>
+                </div>
+
+                {isTeamMode ? (
+                  <div className="ready-teams-grid">
+                    {sortedLeaderboard.map((team, rankIdx) => {
+                      const teamPlayerCount = isSimultaneousTeams
+                        ? players.filter((p) => p.teamId === team.id).length
+                        : players.length;
+                      const isUpNext = isTurnTeams && nextTurnTeam?.id === team.id;
+                      return (
+                        <div
+                          key={team.id}
+                          className="ready-team-card"
+                          style={{ borderTop: `6px solid ${team.color}` }}
+                        >
+                          <div className="row-between" style={{ width: '100%' }}>
+                            <span className="badge tabular">#{rankIdx + 1}</span>
+                            {isUpNext && (
+                              <span
+                                className="team-pill"
+                                style={{ backgroundColor: team.color, color: '#ffffff' }}
+                              >
+                                Neste tur
+                              </span>
+                            )}
+                          </div>
+                          <h2 className="ready-team-name" style={{ color: team.color }}>
+                            {team.name}
+                          </h2>
+                          <div className="row-between" style={{ width: '100%' }}>
+                            <span style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
+                              {isSimultaneousTeams
+                                ? `${teamPlayerCount} ${teamPlayerCount === 1 ? 'spiller' : 'spillere'}`
+                                : 'Felles bord'}
+                            </span>
+                            <strong className="tabular" style={{ fontSize: '1.25rem' }}>
+                              {team.score} p
+                            </strong>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="surface--subtle row-between">
+                    <span style={{ fontWeight: 700, fontSize: '1.125rem' }}>
+                      Tilkoblede spillere
+                    </span>
+                    <span className="badge badge--dark tabular" style={{ fontSize: '1rem' }}>
+                      {players.length} mobiler klare
+                    </span>
+                  </div>
+                )}
+
+                <div className="stack-sm">
+                  <button
+                    type="button"
+                    className="btn btn--primary btn--lg btn--full"
+                    onClick={handleStartOrNextRound}
+                    disabled={!canStartRound || actionBusy !== null}
+                  >
+                    <Play size={22} aria-hidden="true" />
+                    <span>
+                      {actionBusy === 'start'
+                        ? 'Deler ut kort…'
+                        : isTurnTeams && nextTurnTeam
+                          ? `Start runde ${room.roundNumber + 1} (${nextTurnTeam.name})`
+                          : `Start runde ${room.roundNumber + 1}`}
+                    </span>
+                  </button>
+                  <p style={{ fontSize: '0.9375rem', color: 'var(--ink-secondary)', textAlign: 'center' }}>
+                    Neste spørsmål:{' '}
+                    <strong>
+                      {getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}
+                    </strong>{' '}
+                    ({getRoundByNumber(room.roundNumber + 1, selectedRoundIds).directionLabel})
+                  </p>
+                  {room.roundNumber > 0 && (
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--full"
+                      onClick={handleResetGame}
+                      disabled={actionBusy !== null}
+                    >
+                      <RotateCcw size={18} aria-hidden="true" />
+                      <span>Nullstill spill og poeng (start fra runde 1)</span>
+                    </button>
+                  )}
+                </div>
+              </section>
+            )}
           </div>
         )}
 

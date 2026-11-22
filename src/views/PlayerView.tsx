@@ -200,7 +200,21 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
         aria-live="assertive"
       >
         <header className="topbar">
-          <span className="reveal-topbar-pill">Rom {room.id}</span>
+          <div className="row" style={{ gap: '8px' }}>
+            {myTeam && (
+              <span
+                className="team-pill"
+                style={{
+                  backgroundColor: myTeam.color,
+                  color: '#ffffff',
+                  border: '1.5px solid rgba(255,255,255,0.55)',
+                }}
+              >
+                {isTurnTeams ? `${myTeam.name} sin tur` : myTeam.name}
+              </span>
+            )}
+            <span className="reveal-topbar-pill">Rom {room.id}</span>
+          </div>
           <WakeLockBadge
             isSupported={wakeLock.isSupported}
             isActive={wakeLock.isActive}
@@ -311,7 +325,6 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
     <main className="player-shell">
       <header className="topbar">
         <div className="row" style={{ gap: '8px' }}>
-          <span className="room-code-pill">Rom {normalizedRoomId}</span>
           {myTeam && (
             <span
               className="team-pill"
@@ -320,6 +333,7 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
               {isTurnTeams ? `${myTeam.name} sin tur` : myTeam.name}
             </span>
           )}
+          <span className="room-code-pill">Rom {normalizedRoomId}</span>
         </div>
         <WakeLockBadge isSupported={wakeLock.isSupported} isActive={wakeLock.isActive} />
       </header>

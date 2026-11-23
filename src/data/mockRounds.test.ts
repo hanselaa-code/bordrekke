@@ -725,6 +725,50 @@ describe('Flest avspillinger på Spotify i 2025 (MOCK_ROUNDS[15])', () => {
   });
 });
 
+describe('Vekt på dyr (MOCK_ROUNDS[16])', () => {
+  const animalRound = MOCK_ROUNDS[16];
+
+  it('ligger som runde 17 i kategorien Lett blanding med 10 dyr og retning Lavest → Høyest', () => {
+    expect(animalRound.id).toBe('animal-weights-1');
+    expect(animalRound.category).toBe('Lett blanding');
+    expect(animalRound.title).toBe('Vekt på dyr');
+    expect(animalRound.directionLabel).toBe('Lavest → Høyest');
+    expect(animalRound.cards).toHaveLength(10);
+  });
+
+  it('har strengt stigende, unike vekter og lekkasjesikrede felt uten sifre', () => {
+    const weights = animalRound.cards.map((card) => card.answerValue);
+    expect(new Set(weights).size).toBe(10);
+    expect(new Set(animalRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (let i = 1; i < weights.length; i += 1) {
+      expect(weights[i]).toBeGreaterThan(weights[i - 1]);
+    }
+
+    for (const card of animalRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/animals\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/animals/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of animalRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});
+
 describe('Kategorier (ROUND_CATEGORIES)', () => {
   it('har alle 8 kategorier og hver runde tilhører en gyldig kategori', () => {
     expect(ROUND_CATEGORIES).toEqual([

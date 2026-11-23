@@ -683,6 +683,48 @@ describe('Norske julekalendere på TV (MOCK_ROUNDS[14])', () => {
   });
 });
 
+describe('Flest avspillinger på Spotify i 2025 (MOCK_ROUNDS[15])', () => {
+  const spotifyRound = MOCK_ROUNDS[15];
+
+  it('ligger som runde 16 i kategorien Musikk med 10 artister/band og retning Færrest → Flest', () => {
+    expect(spotifyRound.id).toBe('spotify-most-streamed-2025');
+    expect(spotifyRound.category).toBe('Musikk');
+    expect(spotifyRound.title).toBe('Flest avspillinger på Spotify i 2025');
+    expect(spotifyRound.directionLabel).toBe('Færrest → Flest');
+    expect(spotifyRound.cards).toHaveLength(10);
+  });
+
+  it('har unike rangeringer og lekkasjesikrede felt uten sifre', () => {
+    const ranks = spotifyRound.cards.map((card) => card.answerValue);
+    expect(new Set(ranks).size).toBe(10);
+    expect(new Set(spotifyRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of spotifyRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThanOrEqual(1);
+      expect(card.answerValue).toBeLessThanOrEqual(10);
+      expect(card.answerDisplay).toContain('-plass');
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/spotify\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/spotify/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of spotifyRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});
+
 describe('Kategorier (ROUND_CATEGORIES)', () => {
   it('har alle 8 kategorier og hver runde tilhører en gyldig kategori', () => {
     expect(ROUND_CATEGORIES).toEqual([

@@ -169,23 +169,21 @@ describe('CardViews SSR rendering (PlayerView & HostView)', () => {
     expect(htmlSecond).not.toContain(berlinCard.answerDisplay);
   });
 
-  it('HostView (playing, bildekort): viser miniatyrbilder, titler og dynamisk retning, men INGEN årstall', () => {
+  it('HostView (playing, bildekort): skjuler korttitler og bilder på storskjerm så lag ikke ser hverandres kort', () => {
     mockUseRoom.mockReturnValue(buildRoomState('playing', [moonCard, berlinCard]));
 
     const html = renderHost();
 
-    expect(html).toContain('slot-thumb');
-    expect(html).toContain(`src="${moonCard.imageUrl}"`);
-    expect(html).toContain(`src="${berlinCard.imageUrl}"`);
-    expect(html).toContain(moonCard.label);
-    expect(html).toContain(berlinCard.label);
+    expect(html).not.toContain('slot-thumb');
+    expect(html).not.toContain(moonCard.label);
+    expect(html).not.toContain(berlinCard.label);
     expect(html).toContain('Eldst → Nyest');
-    expect(html).not.toContain('fra lavest til høyest');
+    expect(html).toContain('Status på låsing');
     expect(html).not.toContain(moonCard.answerDisplay);
     expect(html).not.toContain(berlinCard.answerDisplay);
   });
 
-  it('HostView (revealed, bildekort): viser miniatyrbilder, hendelsestitler og fasit-årstall', () => {
+  it('HostView (revealed, bildekort): avslører fasit ett og ett svar (#1 først, #2 skjult til neste sekund)', () => {
     mockUseRoom.mockReturnValue(
       buildRoomState('revealed', [moonCard, berlinCard], { locked: true }),
     );
@@ -194,10 +192,27 @@ describe('CardViews SSR rendering (PlayerView & HostView)', () => {
 
     expect(html).toContain('slot-thumb');
     expect(html).toContain(`src="${moonCard.imageUrl}"`);
-    expect(html).toContain(`src="${berlinCard.imageUrl}"`);
     expect(html).toContain(moonCard.label);
-    expect(html).toContain(berlinCard.label);
     expect(html).toContain(moonCard.answerDisplay);
-    expect(html).toContain(berlinCard.answerDisplay);
+    expect(html).toContain('Avsløres snart…');
+    expect(html).not.toContain(berlinCard.label);
+    expect(html).not.toContain(berlinCard.answerDisplay);
+  });
+
+  it('HostView (revealed, lagmodus): viser fasit først med «Vis leaderboard»-knapp i bunn (skjuler poengtavle til den trykkes)', () => {
+    const teamState = buildRoomState('revealed', [moonCard, berlinCard], { locked: true });
+    teamState.room!.gameMode = 'teams-simultaneous';
+    teamState.room!.teams = [
+      { id: 'team-1', name: 'Lag Blå', color: '#2563EB', score: 4 },
+      { id: 'team-2', name: 'Lag Rød', color: '#DC2626', score: 2 },
+    ];
+    mockUseRoom.mockReturnValue(teamState);
+
+    const html = renderHost();
+
+    expect(html).toContain('Riktig fasit-rekkefølge');
+    expect(html).toContain('Vis leaderboard');
+    expect(html).not.toContain('Lag Blå');
+    expect(html).not.toContain('Lag Rød');
   });
 });

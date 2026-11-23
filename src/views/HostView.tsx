@@ -19,7 +19,6 @@ import {
   Trophy,
   Users,
   X,
-  XCircle,
 } from 'lucide-react';
 import { MOCK_ROUNDS, ROUND_CATEGORIES, getRoundByNumber } from '../data/mockRounds';
 import { ensureAnonymousUser } from '../firebase/auth';
@@ -37,7 +36,7 @@ import {
   startRound,
 } from '../engine/roomService';
 import { buildDefaultTeams, computeUpdatedTeamScores } from '../engine/teams';
-import type { GameMode, RoundCategory, TeamConfig } from '../types/game';
+import type { AssignedCard, GameMode, RoundCategory, TeamConfig } from '../types/game';
 import { useRoom } from '../hooks/useRoom';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { WakeLockBadge } from '../components/WakeLockBadge';
@@ -57,6 +56,9 @@ export function HostView() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [lobbyPhase, setLobbyPhase] = useState<'setup' | 'qr-lobby' | 'ready'>('setup');
+  const [revealStage, setRevealStage] = useState<'fasit' | 'leaderboard'>('fasit');
+  const [revealProgress, setRevealProgress] = useState<{ key: string; count: number } | null>(null);
+  const [showFinalSummary, setShowFinalSummary] = useState(false);
 
   const storageKey = normalizedRoomId ? `bordrekke:selectedRounds:${normalizedRoomId}` : null;
   const [selectedRoundIds, setSelectedRoundIds] = useState<string[]>(() => {
@@ -224,6 +226,12 @@ export function HostView() {
       setActionError('Velg minst ett spørsmål for å starte runden.');
       return;
     }
+    if (room.roundNumber >= totalSelectedRounds) {
+      setShowFinalSummary(true);
+      return;
+    }
+    setRevealStage('fasit');
+    setShowFinalSummary(false);
     const uid = hostUid ?? room.hostUid;
     await runAction('start', () =>
       startRound(room.id, uid, room.roundNumber, players, selectedRoundIds, {
@@ -241,17 +249,23 @@ export function HostView() {
 
   async function handleReveal() {
     if (!room) return;
+    setRevealStage('fasit');
+    setShowFinalSummary(false);
     await runAction('reveal', () => revealAnswers(room.id, room, players));
   }
 
-  async function handleReturnToLobby() {
+  async function handleReturnToLobby(nextLobbyPhase: 'setup' | 'ready' = 'ready') {
     if (!room) return;
-    setLobbyPhase('ready');
+    setRevealStage('fasit');
+    setShowFinalSummary(false);
+    setLobbyPhase(nextLobbyPhase);
     await runAction('lobby', () => returnToLobby(room.id, players));
   }
 
   async function handleResetGame() {
     if (!room) return;
+    setRevealStage('fasit');
+    setShowFinalSummary(false);
     setLobbyPhase(players.length > 0 ? 'ready' : 'setup');
     await runAction('reset-game', () => resetGame(room.id, players, room.teams));
   }
@@ -387,6 +401,66 @@ export function HostView() {
     }
     return computeUpdatedTeamScores(room, players).roundPointsByTeamId;
   }, [room, players]);
+
+  const totalSelectedRounds =
+    selectedRoundIds.length > 0 ? selectedRoundIds.length : MOCK_ROUNDS.length;
+  const isLastRound = room !== null && room.roundNumber >= totalSelectedRounds;
+
+  // Unike kort i spill denne runden, sortert fra #1 til #N (riktig fasit-rekkefølge)
+  const hostFasitCards = useMemo(() => {
+    const seen = new Set<string>();
+    const uniqueCards: AssignedCard[] = [];
+    for (const entry of evaluation.correctOrder) {
+      const card = entry.player.card;
+      if (!card || seen.has(card.id)) continue;
+      seen.add(card.id);
+      uniqueCards.push(card);
+    }
+    uniqueCards.sort((a, b) => a.answerValue - b.answerValue);
+    return uniqueCards;
+  }, [evaluation.correctOrder]);
+
+  const currentRevealKey =
+    room && room.status === 'revealed' ? `${room.id}:${room.roundNumber}` : null;
+
+  const revealedCount =
+    currentRevealKey && revealProgress?.key === currentRevealKey
+      ? revealProgress.count
+      : 1;
+
+  const isFasitFullyRevealed =
+    hostFasitCards.length === 0 || revealedCount >= hostFasitCards.length;
+
+  // Sekvensiell avsløring på storskjermen (1 sekund per svar, synkronisert med mobilene)
+  useEffect(() => {
+    if (!currentRevealKey) {
+      return;
+    }
+
+    const total = hostFasitCards.length;
+    if (total <= 1) {
+      return;
+    }
+
+    let step = 1;
+    const intervalId = window.setInterval(() => {
+      step += 1;
+      setRevealProgress({ key: currentRevealKey, count: Math.min(step, total) });
+      if (step >= total) {
+        window.clearInterval(intervalId);
+      }
+    }, 1000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [currentRevealKey, hostFasitCards.length]);
+
+  const winnerTeams = useMemo(() => {
+    if (sortedLeaderboard.length === 0) return [];
+    const topScore = sortedLeaderboard[0].score;
+    return sortedLeaderboard.filter((t) => t.score === topScore);
+  }, [sortedLeaderboard]);
 
   return (
     <main className="page">
@@ -1056,38 +1130,71 @@ export function HostView() {
                 )}
 
                 <div className="stack-sm">
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--lg btn--full"
-                    onClick={handleStartOrNextRound}
-                    disabled={!canStartRound || actionBusy !== null}
-                  >
-                    <Play size={22} aria-hidden="true" />
-                    <span>
-                      {actionBusy === 'start'
-                        ? 'Deler ut kort…'
-                        : isTurnTeams && nextTurnTeam
-                          ? `Start runde ${room.roundNumber + 1} (${nextTurnTeam.name})`
-                          : `Start runde ${room.roundNumber + 1}`}
-                    </span>
-                  </button>
-                  <p style={{ fontSize: '0.9375rem', color: 'var(--ink-secondary)', textAlign: 'center' }}>
-                    Neste spørsmål:{' '}
-                    <strong>
-                      {getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}
-                    </strong>{' '}
-                    ({getRoundByNumber(room.roundNumber + 1, selectedRoundIds).directionLabel})
-                  </p>
-                  {room.roundNumber > 0 && (
-                    <button
-                      type="button"
-                      className="btn btn--secondary btn--full"
-                      onClick={handleResetGame}
-                      disabled={actionBusy !== null}
-                    >
-                      <RotateCcw size={18} aria-hidden="true" />
-                      <span>Nullstill spill og poeng (start fra runde 1)</span>
-                    </button>
+                  {isLastRound ? (
+                    <>
+                      <div className="surface--subtle stack-xs" style={{ textAlign: 'center' }}>
+                        <strong style={{ fontSize: '1.125rem' }}>
+                          Alle {totalSelectedRounds} valgte spørsmål er spilt!
+                        </strong>
+                        <p style={{ fontSize: '0.9375rem', color: 'var(--ink-secondary)' }}>
+                          Nullstill spillet for å starte på nytt, eller velg nye spørsmål i oppsettet.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--lg btn--full"
+                        onClick={handleResetGame}
+                        disabled={actionBusy !== null}
+                      >
+                        <RotateCcw size={20} aria-hidden="true" />
+                        <span>Start nytt spill (Runde 1)</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--full"
+                        onClick={() => setLobbyPhase('setup')}
+                        disabled={actionBusy !== null}
+                      >
+                        <Settings2 size={18} aria-hidden="true" />
+                        <span>Velg nye spørsmål i oppsett</span>
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn--primary btn--lg btn--full"
+                        onClick={handleStartOrNextRound}
+                        disabled={!canStartRound || actionBusy !== null}
+                      >
+                        <Play size={22} aria-hidden="true" />
+                        <span>
+                          {actionBusy === 'start'
+                            ? 'Deler ut kort…'
+                            : isTurnTeams && nextTurnTeam
+                              ? `Start runde ${room.roundNumber + 1} av ${totalSelectedRounds} (${nextTurnTeam.name})`
+                              : `Start runde ${room.roundNumber + 1} av ${totalSelectedRounds}`}
+                        </span>
+                      </button>
+                      <p style={{ fontSize: '0.9375rem', color: 'var(--ink-secondary)', textAlign: 'center' }}>
+                        Neste spørsmål:{' '}
+                        <strong>
+                          {getRoundByNumber(room.roundNumber + 1, selectedRoundIds).title}
+                        </strong>{' '}
+                        ({getRoundByNumber(room.roundNumber + 1, selectedRoundIds).directionLabel})
+                      </p>
+                      {room.roundNumber > 0 && (
+                        <button
+                          type="button"
+                          className="btn btn--secondary btn--full"
+                          onClick={handleResetGame}
+                          disabled={actionBusy !== null}
+                        >
+                          <RotateCcw size={18} aria-hidden="true" />
+                          <span>Nullstill spill og poeng (start fra runde 1)</span>
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
               </section>
@@ -1101,7 +1208,7 @@ export function HostView() {
               <div className="row-between" style={{ flexWrap: 'wrap', gap: '8px' }}>
                 <div className="row" style={{ gap: '8px' }}>
                   <span className="badge badge--accent tabular">
-                    Runde {room.roundNumber}
+                    Runde {room.roundNumber} av {totalSelectedRounds}
                   </span>
                   {activeTurnTeam && (
                     <span
@@ -1126,7 +1233,8 @@ export function HostView() {
                 </h1>
                 <p style={{ color: 'var(--ink-secondary)' }}>
                   Spillerne diskuterer rekkefølgen og trykker «Lås min plass» på sin mobil (
-                  {room.activeRoundDirection ?? 'Lavest → Høyest'}).
+                  {room.activeRoundDirection ?? 'Lavest → Høyest'}). Kortene holdes skjult på
+                  storskjermen frem til fasiten avsløres.
                 </p>
               </div>
 
@@ -1181,20 +1289,22 @@ export function HostView() {
                   <span>Nullstill plasseringer</span>
                 </button>
 
-                <button
-                  type="button"
-                  className="btn btn--secondary btn--lg"
-                  onClick={handleStartOrNextRound}
-                  disabled={players.length < 2 || actionBusy !== null}
-                >
-                  <SkipForward size={18} aria-hidden="true" />
-                  <span>{actionBusy === 'start' ? 'Starter…' : 'Ny runde'}</span>
-                </button>
+                {!isLastRound && (
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--lg"
+                    onClick={handleStartOrNextRound}
+                    disabled={players.length < 2 || actionBusy !== null}
+                  >
+                    <SkipForward size={18} aria-hidden="true" />
+                    <span>{actionBusy === 'start' ? 'Starter…' : 'Hopp til neste'}</span>
+                  </button>
+                )}
 
                 <button
                   type="button"
                   className="btn btn--secondary btn--lg"
-                  onClick={handleReturnToLobby}
+                  onClick={() => handleReturnToLobby('ready')}
                   disabled={actionBusy !== null}
                 >
                   <span>Tilbake til lobby</span>
@@ -1249,7 +1359,6 @@ export function HostView() {
                         <div className="slot-list">
                           {teamCards.map((entry, idx) => {
                             const isLocked = entry.lockedRank !== null;
-                            const card = entry.player.card;
                             return (
                               <div
                                 key={entry.player.uid}
@@ -1263,18 +1372,21 @@ export function HostView() {
                                   >
                                     {isLocked ? `#${entry.lockedRank}` : '–'}
                                   </span>
-                                  {card?.imageUrl && (
-                                    <img
-                                      className="slot-thumb"
-                                      src={card.imageUrl}
-                                      alt={card.imageAlt ?? card.label}
-                                      draggable={false}
-                                    />
-                                  )}
-                                  <strong style={{ fontSize: '1rem' }}>
-                                    {card?.label ?? `Spiller ${idx + 1}`}
+                                  <strong style={{ fontSize: '0.9375rem' }}>
+                                    {isLocked
+                                      ? `Plass ${entry.lockedRank} låst`
+                                      : `Spiller ${idx + 1} tenker…`}
                                   </strong>
                                 </div>
+                                {isLocked ? (
+                                  <CheckCircle2
+                                    size={20}
+                                    color="var(--correct)"
+                                    aria-label="Låst"
+                                  />
+                                ) : (
+                                  <span className="badge">Venter</span>
+                                )}
                               </div>
                             );
                           })}
@@ -1287,16 +1399,15 @@ export function HostView() {
             ) : (
             <div className="surface stack-md">
               <div className="row-between">
-                <h2 style={{ fontSize: '1.25rem' }}>Sanntids rekkefølge</h2>
+                <h2 style={{ fontSize: '1.25rem' }}>Status på låsing</h2>
                 <span style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
-                  Oppdateres umiddelbart når mobiler trykkes
+                  Kort holdes skjult til fasiten avsløres
                 </span>
               </div>
 
               <div className="slot-list">
                 {playersWithCards.map((entry, idx) => {
                   const isLocked = entry.lockedRank !== null;
-                  const card = entry.player.card;
                   return (
                     <div
                       key={entry.player.uid}
@@ -1308,29 +1419,23 @@ export function HostView() {
                         >
                           {isLocked ? `#${entry.lockedRank}` : '–'}
                         </span>
-                        {card?.imageUrl && (
-                          <img
-                            className="slot-thumb"
-                            src={card.imageUrl}
-                            alt={card.imageAlt ?? card.label}
-                            draggable={false}
-                          />
-                        )}
                         <div className="stack-xs" style={{ gap: '2px', minWidth: 0 }}>
-                          <strong style={{ fontSize: '1.125rem' }}>
-                            {card?.label ?? `Spiller ${idx + 1}`}
+                          <strong style={{ fontSize: '1.0625rem' }}>
+                            {isLocked
+                              ? `Plass ${entry.lockedRank} er låst`
+                              : `Spiller ${idx + 1}`}
                           </strong>
                           <span style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
-                            {isLocked
-                              ? `Låst som Plass ${entry.lockedRank}`
-                              : 'Ikke låst ennå'}
+                            {isLocked ? 'Klar til avsløring' : 'Ikke låst ennå'}
                           </span>
                         </div>
                       </div>
 
-                      <span className={`badge ${isLocked ? 'badge--dark' : ''}`}>
-                        {isLocked ? `Plass ${entry.lockedRank}` : 'Venter'}
-                      </span>
+                      {isLocked ? (
+                        <span className="badge badge--success">Plass {entry.lockedRank} ✓</span>
+                      ) : (
+                        <span className="badge">Venter</span>
+                      )}
                     </div>
                   );
                 })}
@@ -1340,219 +1445,398 @@ export function HostView() {
           </section>
         )}
 
-        {!loading && room && room.status === 'revealed' && (
-          <section className="stack-md" aria-label="Fasit og resultat">
-            <div
-              className={`score-banner ${
-                evaluation.totalPlayers > 0 &&
-                evaluation.correctCount === evaluation.totalPlayers
-                  ? 'score-banner--perfect'
-                  : ''
-              }`}
-            >
+        {!loading && room && room.status === 'revealed' && showFinalSummary && (
+          <section className="stack-md" aria-label="Sluttresultat">
+            <div className="score-banner score-banner--winner">
               <span
                 style={{
                   fontSize: '0.875rem',
-                  fontWeight: 600,
+                  fontWeight: 700,
                   textTransform: 'uppercase',
-                  letterSpacing: '0.1em',
-                  opacity: 0.85,
+                  letterSpacing: '0.12em',
+                  opacity: 0.9,
                 }}
               >
-                Fasit · Runde {room.roundNumber}
+                Sluttresultat · Alle {totalSelectedRounds} spørsmål fullført
               </span>
-              <h1 style={{ color: '#ffffff', fontSize: 'clamp(1.75rem, 5vw, 2.5rem)' }}>
-                {isSimultaneousTeams
-                  ? 'Fasit avslørt for alle lag!'
-                  : isTurnTeams && activeTurnTeam
-                    ? `${activeTurnTeam.name} fikk +${evaluation.correctCount} poeng!`
-                    : `${evaluation.correctCount} av ${evaluation.totalPlayers} riktig plassert!`}
+              <h1 style={{ color: '#ffffff', fontSize: 'clamp(2rem, 5vw, 3rem)' }}>
+                {isTeamMode && winnerTeams.length > 0
+                  ? winnerTeams.length === 1
+                    ? `Vinner: ${winnerTeams[0].name}!`
+                    : `Uavgjort: ${winnerTeams.map((t) => t.name).join(' & ')}!`
+                  : 'Spillet er ferdig!'}
               </h1>
-              <p style={{ opacity: 0.9 }}>
-                {room.activeRoundTitle} ({room.activeRoundDirection ?? 'Lavest → Høyest'})
-              </p>
+              {isTeamMode && winnerTeams.length > 0 && (
+                <p style={{ fontSize: '1.25rem', fontWeight: 700, opacity: 0.95 }}>
+                  {winnerTeams[0].score} poeng totalt
+                </p>
+              )}
             </div>
 
             {isTeamMode && sortedLeaderboard.length > 0 && (
-              <section className="surface stack-md" aria-label="Poengtavle">
+              <section className="surface stack-md" aria-label="Endelig poengtavle">
                 <div className="row-between">
                   <div className="row" style={{ gap: '8px' }}>
-                    <Trophy size={20} color="var(--accent)" aria-hidden="true" />
-                    <h2 style={{ fontSize: '1.25rem' }}>Poengtavle</h2>
+                    <Trophy size={22} color="var(--accent)" aria-hidden="true" />
+                    <h2 style={{ fontSize: '1.375rem' }}>Endelig poengtavle</h2>
                   </div>
-                  <span className="badge">1 poeng per riktig kort</span>
+                  <span className="badge tabular">{totalSelectedRounds} runder spilt</span>
                 </div>
                 <div className="scoreboard-list">
-                  {sortedLeaderboard.map((team, rankIdx) => {
-                    const earned = roundPointsByTeamId[team.id] ?? 0;
-                    return (
-                      <div
-                        key={team.id}
-                        className="scoreboard-row"
-                        style={{ borderLeft: `6px solid ${team.color}` }}
-                      >
-                        <div className="row" style={{ gap: '12px' }}>
-                          <span className="slot-rank slot-rank--locked tabular">
-                            #{rankIdx + 1}
-                          </span>
-                          <strong style={{ fontSize: '1.125rem' }}>{team.name}</strong>
-                        </div>
-                        <div className="row" style={{ gap: '10px' }}>
-                          {earned > 0 && (
-                            <span className="badge badge--success tabular">+{earned} p</span>
-                          )}
-                          <span className="badge badge--dark tabular" style={{ fontSize: '1rem' }}>
-                            {team.score} poeng
-                          </span>
-                        </div>
+                  {sortedLeaderboard.map((team, rankIdx) => (
+                    <div
+                      key={team.id}
+                      className="scoreboard-row"
+                      style={{ borderLeft: `6px solid ${team.color}` }}
+                    >
+                      <div className="row" style={{ gap: '12px' }}>
+                        <span className="slot-rank slot-rank--locked tabular">
+                          #{rankIdx + 1}
+                        </span>
+                        <strong style={{ fontSize: '1.25rem' }}>{team.name}</strong>
                       </div>
-                    );
-                  })}
+                      <span className="badge badge--dark tabular" style={{ fontSize: '1.125rem' }}>
+                        {team.score} poeng
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </section>
             )}
 
-            <div className="row">
+            <div className="surface stack-sm">
               <button
                 type="button"
-                className="btn btn--primary btn--lg"
-                style={{ flex: '1 1 240px' }}
-                onClick={handleStartOrNextRound}
-                disabled={!canStartRound || actionBusy !== null}
-              >
-                <SkipForward size={20} aria-hidden="true" />
-                <span>
-                  {actionBusy === 'start'
-                    ? 'Starter neste…'
-                    : isTurnTeams && nextTurnTeam
-                      ? `Neste runde (${nextTurnTeam.name} sin tur)`
-                      : 'Neste runde'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                className="btn btn--secondary btn--lg"
-                onClick={handleReturnToLobby}
-                disabled={actionBusy !== null}
-              >
-                <span>Tilbake til lobby</span>
-              </button>
-
-              <button
-                type="button"
-                className="btn btn--secondary btn--lg"
+                className="btn btn--primary btn--lg btn--full"
                 onClick={handleResetGame}
                 disabled={actionBusy !== null}
               >
-                <RotateCcw size={18} aria-hidden="true" />
+                <RotateCcw size={20} aria-hidden="true" />
                 <span>
-                  {actionBusy === 'reset-game' ? 'Nullstiller…' : 'Nytt spill (Runde 1)'}
+                  {actionBusy === 'reset-game' ? 'Nullstiller…' : 'Start nytt spill (Runde 1)'}
                 </span>
               </button>
-            </div>
-
-            <div className="reveal-grid">
-              <div className="surface stack-md">
-                <div className="row-between">
-                  <h2 style={{ fontSize: '1.25rem' }}>Spillernes rekkefølge</h2>
-                  <span className="badge">Innlåst</span>
-                </div>
-
-                <div className="slot-list">
-                  {playersWithCards.map((entry) => {
-                    const isCorrect = entry.isCorrect === true;
-                    const card = entry.player.card;
-                    return (
-                      <div
-                        key={entry.player.uid}
-                        className={`slot-row ${isCorrect ? 'slot-row--correct' : 'slot-row--wrong'}`}
-                      >
-                        <div className="slot-main">
-                          <span
-                            className={`slot-rank tabular ${
-                              isCorrect ? 'slot-rank--correct' : 'slot-rank--wrong'
-                            }`}
-                          >
-                            {entry.lockedRank !== null ? `#${entry.lockedRank}` : '–'}
-                          </span>
-                          {card?.imageUrl && (
-                            <img
-                              className="slot-thumb"
-                              src={card.imageUrl}
-                              alt={card.imageAlt ?? card.label}
-                              draggable={false}
-                            />
-                          )}
-                          <div className="stack-xs" style={{ gap: '2px', minWidth: 0 }}>
-                            <strong style={{ fontSize: '1.0625rem' }}>{card?.label}</strong>
-                            <span
-                              style={{ fontSize: '0.875rem', color: 'var(--ink-secondary)' }}
-                            >
-                              {card?.answerDisplay} · Fasit #{entry.correctRank}
-                            </span>
-                          </div>
-                        </div>
-
-                        {isCorrect ? (
-                          <CheckCircle2
-                            size={24}
-                            color="var(--correct)"
-                            aria-label="Riktig plass"
-                          />
-                        ) : (
-                          <XCircle size={24} color="var(--wrong)" aria-label="Feil plass" />
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="row">
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--lg"
+                  style={{ flex: '1 1 200px' }}
+                  onClick={() => handleReturnToLobby('setup')}
+                  disabled={actionBusy !== null}
+                >
+                  <Settings2 size={18} aria-hidden="true" />
+                  <span>Tilbake til oppsett</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--lg"
+                  style={{ flex: '1 1 200px' }}
+                  onClick={handleStartFreshRoom}
+                  disabled={actionBusy !== null}
+                >
+                  <LogOut size={18} aria-hidden="true" />
+                  <span>Nytt spillrom (ny QR-kode)</span>
+                </button>
               </div>
+            </div>
+          </section>
+        )}
 
-              <div className="surface stack-md">
-                <div className="row-between">
-                  <h2 style={{ fontSize: '1.25rem' }}>Riktig fasit-rekkefølge</h2>
-                  <span className="badge badge--success">
-                    {room.activeRoundDirection ?? 'Lavest → Høyest'}
+        {!loading && room && room.status === 'revealed' && !showFinalSummary && (
+          <section className="stack-md" aria-label="Fasit og resultat">
+            {revealStage === 'fasit' ? (
+              <>
+                <div className="score-banner">
+                  <span
+                    style={{
+                      fontSize: '0.875rem',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.1em',
+                      opacity: 0.85,
+                    }}
+                  >
+                    Fasit · Runde {room.roundNumber} av {totalSelectedRounds}
                   </span>
+                  <h1 style={{ color: '#ffffff', fontSize: 'clamp(1.75rem, 5vw, 2.5rem)' }}>
+                    {room.activeRoundTitle}
+                  </h1>
+                  <p style={{ opacity: 0.9 }}>
+                    {room.activeRoundDirection ?? 'Lavest → Høyest'} · Avsløres ett og ett svar
+                  </p>
                 </div>
 
-                <div className="slot-list">
-                  {evaluation.correctOrder.map((entry) => {
-                    const card = entry.player.card;
-                    return (
-                      <div key={entry.player.uid} className="slot-row">
-                        <div className="slot-main">
-                          <span className="slot-rank slot-rank--locked tabular">
-                            #{entry.correctRank}
-                          </span>
-                          {card?.imageUrl && (
-                            <img
-                              className="slot-thumb"
-                              src={card.imageUrl}
-                              alt={card.imageAlt ?? card.label}
-                              draggable={false}
-                            />
-                          )}
-                          <div className="stack-xs" style={{ gap: '2px', minWidth: 0 }}>
-                            <strong style={{ fontSize: '1.0625rem' }}>{card?.label}</strong>
-                            <span style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
-                              {entry.lockedRank !== null
-                                ? `Ble plassert som #${entry.lockedRank}`
-                                : 'Ble ikke låst'}
-                            </span>
+                <div className="surface stack-md">
+                  <div className="row-between" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                    <h2 style={{ fontSize: '1.25rem' }}>Riktig fasit-rekkefølge</h2>
+                    <span className="badge badge--success tabular">
+                      {Math.min(revealedCount, hostFasitCards.length)} av {hostFasitCards.length} avslørt
+                    </span>
+                  </div>
+
+                  <div className="slot-list">
+                    {hostFasitCards.map((card, idx) => {
+                      const isCardRevealed = idx < revealedCount;
+                      if (!isCardRevealed) {
+                        return (
+                          <div key={card.id} className="slot-row slot-row--pending">
+                            <div className="slot-main">
+                              <span className="slot-rank tabular">#{idx + 1}</span>
+                              <div className="stack-xs" style={{ gap: '2px', minWidth: 0 }}>
+                                <strong style={{ fontSize: '1.0625rem', color: 'var(--ink-muted)' }}>
+                                  Avsløres snart…
+                                </strong>
+                              </div>
+                            </div>
+                            <span className="badge tabular">?</span>
                           </div>
-                        </div>
+                        );
+                      }
 
-                        <span className="badge badge--accent tabular">
-                          {card?.answerDisplay}
-                        </span>
-                      </div>
-                    );
-                  })}
+                      return (
+                        <div key={card.id} className="slot-row slot-row--reveal-pop">
+                          <div className="slot-main">
+                            <span className="slot-rank slot-rank--locked tabular">
+                              #{idx + 1}
+                            </span>
+                            {card.imageUrl && (
+                              <img
+                                className="slot-thumb"
+                                src={card.imageUrl}
+                                alt={card.imageAlt ?? card.label}
+                                draggable={false}
+                              />
+                            )}
+                            <div className="stack-xs" style={{ gap: '2px', minWidth: 0 }}>
+                              <strong style={{ fontSize: '1.125rem' }}>{card.label}</strong>
+                              {card.subtitle && (
+                                <span style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
+                                  {card.subtitle}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <span
+                            className="badge badge--accent tabular"
+                            style={{ fontSize: '1rem', padding: '6px 12px' }}
+                          >
+                            {card.answerDisplay}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            </div>
+
+                {isTeamMode ? (
+                  <div className="surface stack-sm">
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--lg btn--full"
+                      onClick={() => setRevealStage('leaderboard')}
+                    >
+                      <Trophy size={22} aria-hidden="true" />
+                      <span>
+                        {isFasitFullyRevealed
+                          ? 'Vis leaderboard'
+                          : 'Vis leaderboard (hopp over nedtelling)'}
+                      </span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="surface stack-md">
+                    {isFasitFullyRevealed && (
+                      <div className="row-between" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                        <strong style={{ fontSize: '1.25rem' }}>
+                          Resultat: {evaluation.correctCount} av {evaluation.totalPlayers} riktig
+                          plassert!
+                        </strong>
+                        {evaluation.totalPlayers > 0 &&
+                          evaluation.correctCount === evaluation.totalPlayers && (
+                            <span className="badge badge--success">Full pott!</span>
+                          )}
+                      </div>
+                    )}
+
+                    <div className="row">
+                      {isLastRound ? (
+                        <button
+                          type="button"
+                          className="btn btn--primary btn--lg"
+                          style={{ flex: '1 1 240px' }}
+                          onClick={() => setShowFinalSummary(true)}
+                        >
+                          <Trophy size={20} aria-hidden="true" />
+                          <span>Se sluttresultat</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn--primary btn--lg"
+                          style={{ flex: '1 1 240px' }}
+                          onClick={handleStartOrNextRound}
+                          disabled={!canStartRound || actionBusy !== null}
+                        >
+                          <SkipForward size={20} aria-hidden="true" />
+                          <span>
+                            {actionBusy === 'start' ? 'Starter neste…' : 'Neste runde'}
+                          </span>
+                        </button>
+                      )}
+
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--lg"
+                        onClick={() => handleReturnToLobby('ready')}
+                        disabled={actionBusy !== null}
+                      >
+                        <span>Tilbake til lobby</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn--secondary btn--lg"
+                        onClick={handleResetGame}
+                        disabled={actionBusy !== null}
+                      >
+                        <RotateCcw size={18} aria-hidden="true" />
+                        <span>
+                          {actionBusy === 'reset-game' ? 'Nullstiller…' : 'Nytt spill (Runde 1)'}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="score-banner">
+                  <span
+                    style={{
+                      fontSize: '0.875rem',
+                      fontWeight: 600,
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.1em',
+                      opacity: 0.85,
+                    }}
+                  >
+                    Poengtavle · Runde {room.roundNumber} av {totalSelectedRounds}
+                  </span>
+                  <h1 style={{ color: '#ffffff', fontSize: 'clamp(1.75rem, 5vw, 2.5rem)' }}>
+                    {isTurnTeams && activeTurnTeam
+                      ? `${activeTurnTeam.name} fikk +${evaluation.correctCount} poeng!`
+                      : 'Oppdatert leaderboard'}
+                  </h1>
+                  <p style={{ opacity: 0.9 }}>
+                    {room.activeRoundTitle} ({room.activeRoundDirection ?? 'Lavest → Høyest'})
+                  </p>
+                </div>
+
+                {sortedLeaderboard.length > 0 && (
+                  <section className="surface stack-md" aria-label="Poengtavle">
+                    <div className="row-between">
+                      <div className="row" style={{ gap: '8px' }}>
+                        <Trophy size={20} color="var(--accent)" aria-hidden="true" />
+                        <h2 style={{ fontSize: '1.25rem' }}>Poengtavle</h2>
+                      </div>
+                      <span className="badge">1 poeng per riktig kort</span>
+                    </div>
+                    <div className="scoreboard-list">
+                      {sortedLeaderboard.map((team, rankIdx) => {
+                        const earned = roundPointsByTeamId[team.id] ?? 0;
+                        return (
+                          <div
+                            key={team.id}
+                            className="scoreboard-row"
+                            style={{ borderLeft: `6px solid ${team.color}` }}
+                          >
+                            <div className="row" style={{ gap: '12px' }}>
+                              <span className="slot-rank slot-rank--locked tabular">
+                                #{rankIdx + 1}
+                              </span>
+                              <strong style={{ fontSize: '1.125rem' }}>{team.name}</strong>
+                            </div>
+                            <div className="row" style={{ gap: '10px' }}>
+                              {earned > 0 && (
+                                <span className="badge badge--success tabular">+{earned} p</span>
+                              )}
+                              <span
+                                className="badge badge--dark tabular"
+                                style={{ fontSize: '1rem' }}
+                              >
+                                {team.score} poeng
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                )}
+
+                <div className="row">
+                  {isLastRound ? (
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--lg"
+                      style={{ flex: '1 1 240px' }}
+                      onClick={() => setShowFinalSummary(true)}
+                    >
+                      <Trophy size={20} aria-hidden="true" />
+                      <span>Se sluttresultat</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--lg"
+                      style={{ flex: '1 1 240px' }}
+                      onClick={handleStartOrNextRound}
+                      disabled={!canStartRound || actionBusy !== null}
+                    >
+                      <SkipForward size={20} aria-hidden="true" />
+                      <span>
+                        {actionBusy === 'start'
+                          ? 'Starter neste…'
+                          : isTurnTeams && nextTurnTeam
+                            ? `Neste runde (${nextTurnTeam.name} sin tur)`
+                            : 'Neste runde'}
+                      </span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--lg"
+                    onClick={() => setRevealStage('fasit')}
+                  >
+                    <Eye size={18} aria-hidden="true" />
+                    <span>Vis fasit igjen</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--lg"
+                    onClick={() => handleReturnToLobby('ready')}
+                    disabled={actionBusy !== null}
+                  >
+                    <span>Tilbake til lobby</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--lg"
+                    onClick={handleResetGame}
+                    disabled={actionBusy !== null}
+                  >
+                    <RotateCcw size={18} aria-hidden="true" />
+                    <span>
+                      {actionBusy === 'reset-game' ? 'Nullstiller…' : 'Nytt spill (Runde 1)'}
+                    </span>
+                  </button>
+                </div>
+              </>
+            )}
           </section>
         )}
       </div>

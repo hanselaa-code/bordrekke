@@ -1598,3 +1598,32 @@ input {
   line-height: 1.15;
   margin: 0;
 }
+
+/* Sekvensiell fasit-avsløring på storskjermen (HostView) */
+.slot-row--reveal-pop {
+  animation: hostRevealPop 0.35s cubic-bezier(0.22, 1.15, 0.36, 1);
+  border-color: var(--ink-primary);
+  background: var(--bg-surface);
+}
+
+.slot-row--pending {
+  opacity: 0.55;
+  border-style: dashed;
+  background: var(--bg-subtle);
+}
+
+@keyframes hostRevealPop {
+  0% {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.score-banner--winner {
+  background: linear-gradient(135deg, #18181b 0%, #3f2e12 55%, #b45309 100%);
+  border: 2px solid #f59e0b;
+}

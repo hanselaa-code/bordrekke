@@ -642,6 +642,47 @@ describe('Beste åpningsweekend på kino (MOCK_ROUNDS[13])', () => {
   });
 });
 
+describe('Norske julekalendere på TV (MOCK_ROUNDS[14])', () => {
+  const juleRound = MOCK_ROUNDS[14];
+
+  it('ligger som runde 15 i kategorien Film med 10 julekalendere og retning Eldst → Nyest', () => {
+    expect(juleRound.id).toBe('norwegian-advent-calendars-1');
+    expect(juleRound.category).toBe('Film');
+    expect(juleRound.title).toBe('Norske julekalendere på TV');
+    expect(juleRound.directionLabel).toBe('Eldst → Nyest');
+    expect(juleRound.cards).toHaveLength(10);
+  });
+
+  it('har unike årstall og lekkasjesikrede felt uten sifre', () => {
+    const years = juleRound.cards.map((card) => card.answerValue);
+    expect(new Set(years).size).toBe(10);
+    expect(new Set(juleRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of juleRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThanOrEqual(1970);
+      expect(card.answerDisplay).toBe(String(card.answerValue));
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/julekalendere\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/julekalendere/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of juleRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});
+
 describe('Kategorier (ROUND_CATEGORIES)', () => {
   it('har alle 8 kategorier og hver runde tilhører en gyldig kategori', () => {
     expect(ROUND_CATEGORIES).toEqual([

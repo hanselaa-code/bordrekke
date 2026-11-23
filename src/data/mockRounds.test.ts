@@ -601,6 +601,47 @@ describe('Flest mål på det norske landslaget (MOCK_ROUNDS[12])', () => {
   });
 });
 
+describe('Beste åpningsweekend på kino (MOCK_ROUNDS[13])', () => {
+  const movieRound = MOCK_ROUNDS[13];
+
+  it('ligger som runde 14 i kategorien Film med 10 filmer og retning Lavest → Høyest', () => {
+    expect(movieRound.id).toBe('movie-opening-weekend-1');
+    expect(movieRound.category).toBe('Film');
+    expect(movieRound.title).toBe('Beste åpningsweekend på kino (2010–2026)');
+    expect(movieRound.directionLabel).toBe('Lavest → Høyest');
+    expect(movieRound.cards).toHaveLength(10);
+  });
+
+  it('har unike åpningshelg-tall og lekkasjesikrede felt uten sifre', () => {
+    const totals = movieRound.cards.map((card) => card.answerValue);
+    expect(new Set(totals).size).toBe(10);
+    expect(new Set(movieRound.cards.map((card) => card.id)).size).toBe(10);
+
+    for (const card of movieRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.answerDisplay).toContain('mill.');
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/movies\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/movies/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of movieRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});
+
 describe('Kategorier (ROUND_CATEGORIES)', () => {
   it('har alle 8 kategorier og hver runde tilhører en gyldig kategori', () => {
     expect(ROUND_CATEGORIES).toEqual([

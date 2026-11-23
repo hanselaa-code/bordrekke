@@ -21,6 +21,7 @@ vi.mock('../engine/roomService', () => ({
   joinRoomAsPlayer: vi.fn(),
   lockPlayerPosition: vi.fn(),
   unlockPlayerPosition: vi.fn(),
+  reassignPlayerCard: vi.fn(),
   resetAllLocks: vi.fn(),
   returnToLobby: vi.fn(),
   revealAnswers: vi.fn(),
@@ -214,5 +215,23 @@ describe('CardViews SSR rendering (PlayerView & HostView)', () => {
     expect(html).toContain('Vis leaderboard');
     expect(html).not.toContain('Lag Blå');
     expect(html).not.toContain('Lag Rød');
+  });
+
+  it('HostView (playing): viser «Koble til spiller»-knapp med antall ventende ved gjenoppkobling', () => {
+    const state = buildRoomState('playing', [moonCard, berlinCard]);
+    state.players.push({
+      uid: 'reconnected-player',
+      joinedAt: createMockTimestamp(5000),
+      connected: true,
+      card: null,
+      lockedAt: null,
+      lockedClientAt: null,
+    });
+    mockUseRoom.mockReturnValue(state);
+
+    const html = renderHost();
+
+    expect(html).toContain('Koble til spiller');
+    expect(html).toContain('(1 venter)');
   });
 });

@@ -1627,3 +1627,46 @@ input {
   background: linear-gradient(135deg, #18181b 0%, #3f2e12 55%, #b45309 100%);
   border: 2px solid #f59e0b;
 }
+
+/* Modal for spillmesterstyrt gjenoppkobling midt i runden */
+.reconnect-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(24, 24, 27, 0.62);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.reconnect-modal {
+  width: 100%;
+  max-width: 720px;
+  max-height: 90dvh;
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  border: 2px solid var(--border-strong);
+  box-shadow: 0 24px 60px -12px rgba(0, 0, 0, 0.35);
+  padding: var(--space-6);
+}
+
+.reconnect-qr-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: var(--space-3);
+}
+
+.reconnect-qr-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1.5px solid var(--border-strong);
+  background: var(--bg-subtle);
+  text-align: center;
+}

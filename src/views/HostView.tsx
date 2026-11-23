@@ -28,6 +28,7 @@ import {
   closeRoom,
   configureRoomMode,
   createRoom,
+  reassignPlayerCard,
   removePlayerFromRoom,
   resetAllLocks,
   resetGame,
@@ -36,7 +37,7 @@ import {
   startRound,
 } from '../engine/roomService';
 import { buildDefaultTeams, computeUpdatedTeamScores } from '../engine/teams';
-import type { AssignedCard, GameMode, RoundCategory, TeamConfig } from '../types/game';
+import type { AssignedCard, GameMode, PlayerDoc, RoundCategory, TeamConfig } from '../types/game';
 import { useRoom } from '../hooks/useRoom';
 import { useWakeLock } from '../hooks/useWakeLock';
 import { WakeLockBadge } from '../components/WakeLockBadge';
@@ -59,6 +60,7 @@ export function HostView() {
   const [revealStage, setRevealStage] = useState<'fasit' | 'leaderboard'>('fasit');
   const [revealProgress, setRevealProgress] = useState<{ key: string; count: number } | null>(null);
   const [showFinalSummary, setShowFinalSummary] = useState(false);
+  const [showReconnectModal, setShowReconnectModal] = useState(false);
 
   const storageKey = normalizedRoomId ? `bordrekke:selectedRounds:${normalizedRoomId}` : null;
   const [selectedRoundIds, setSelectedRoundIds] = useState<string[]>(() => {
@@ -275,6 +277,13 @@ export function HostView() {
     await runAction(`remove-${targetUid}`, () => removePlayerFromRoom(room.id, targetUid));
   }
 
+  async function handleReassignCard(fromPlayer: PlayerDoc, toPlayer: PlayerDoc) {
+    if (!room) return;
+    await runAction(`reassign-${fromPlayer.uid}-${toPlayer.uid}`, () =>
+      reassignPlayerCard(room.id, fromPlayer, toPlayer.uid, toPlayer.teamId)
+    );
+  }
+
   async function handleEndGameToHome() {
     if (actionBusy) return;
     setActionError(null);
@@ -313,7 +322,8 @@ export function HostView() {
     }
   }
 
-  // Automatisk avduplisering: kun én deltakelse per telefon (deviceId) i rommet
+  // Automatisk avduplisering og sømløs gjenoppkobling per telefon (deviceId):
+  // Hvis samme telefon kobler på med ny økt midt i runden, overføres kortet automatisk til den nye økten.
   useEffect(() => {
     if (!room || !hostUid || room.hostUid !== hostUid) return;
 
@@ -331,21 +341,27 @@ export function HostView() {
 
     for (const group of byDevice.values()) {
       if (group.length <= 1) continue;
-      // Behold den nyeste (eller den som allerede har kort), fjern eldre duplikater
+      // Behold den nyeste økten (den som faktisk er åpen på telefonen nå)
       const sorted = [...group].sort((a, b) => {
-        const aHasCard = a.card ? 1 : 0;
-        const bHasCard = b.card ? 1 : 0;
-        if (aHasCard !== bHasCard) return bHasCard - aHasCard;
         const aTime = a.joinedAt?.toMillis() ?? 0;
         const bTime = b.joinedAt?.toMillis() ?? 0;
         return bTime - aTime;
       });
+      const newest = sorted[0];
       const duplicates = sorted.slice(1);
+      const olderWithCard = newest.card === null ? duplicates.find((d) => d.card !== null) : undefined;
+
       for (const dup of duplicates) {
         if (dedupInFlightRef.current.has(dup.uid)) continue;
         dedupInFlightRef.current.add(dup.uid);
-        void removePlayerFromRoom(room.id, dup.uid)
-          .catch((err) => console.error('Kunne ikke fjerne duplikat enhet:', err))
+
+        const op =
+          olderWithCard && dup.uid === olderWithCard.uid
+            ? reassignPlayerCard(room.id, dup, newest.uid, newest.teamId)
+            : removePlayerFromRoom(room.id, dup.uid);
+
+        void op
+          .catch((err) => console.error('Kunne ikke rydde/overføre duplikat enhet:', err))
           .finally(() => {
             dedupInFlightRef.current.delete(dup.uid);
           });
@@ -456,6 +472,11 @@ export function HostView() {
     };
   }, [currentRevealKey, hostFasitCards.length]);
 
+  const waitingPlayersWithoutCard = useMemo(() => {
+    if (!room || room.status !== 'playing') return [];
+    return players.filter((p) => p.card === null);
+  }, [room, players]);
+
   const winnerTeams = useMemo(() => {
     if (sortedLeaderboard.length === 0) return [];
     const topScore = sortedLeaderboard[0].score;
@@ -488,6 +509,22 @@ export function HostView() {
                 {players.length} {players.length === 1 ? 'spiller' : 'spillere'}
               </span>
             </span>
+            {room && room.status !== 'lobby' && (
+              <button
+                type="button"
+                className={`btn ${waitingPlayersWithoutCard.length > 0 ? 'btn--primary' : 'btn--secondary'}`}
+                style={{ minHeight: '36px', padding: '6px 12px', fontSize: '0.875rem' }}
+                onClick={() => setShowReconnectModal(true)}
+              >
+                <QrCode size={15} aria-hidden="true" />
+                <span>
+                  Koble til spiller
+                  {waitingPlayersWithoutCard.length > 0
+                    ? ` (${waitingPlayersWithoutCard.length} venter)`
+                    : ''}
+                </span>
+              </button>
+            )}
             <button
               type="button"
               className="btn btn--secondary"
@@ -1838,6 +1875,209 @@ export function HostView() {
               </>
             )}
           </section>
+        )}
+        {showReconnectModal && room && (
+          <div
+            className="reconnect-modal-backdrop"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Koble til spiller på nytt"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) {
+                setShowReconnectModal(false);
+              }
+            }}
+          >
+            <div className="reconnect-modal stack-md">
+              <div className="row-between">
+                <div className="stack-xs" style={{ gap: '2px' }}>
+                  <span className="badge badge--accent">Spillmester · Gjenoppkobling</span>
+                  <h2 style={{ fontSize: '1.375rem' }}>Koble til spiller under runden</h2>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn--secondary"
+                  style={{ minHeight: '36px', padding: '6px 10px' }}
+                  onClick={() => setShowReconnectModal(false)}
+                  aria-label="Lukk vindu"
+                >
+                  <X size={18} aria-hidden="true" />
+                  <span>Lukk</span>
+                </button>
+              </div>
+
+              <p style={{ fontSize: '0.9375rem', color: 'var(--ink-secondary)' }}>
+                Hvis en deltaker faller ut, kan de skanne QR-koden under eller bruke romkoden{' '}
+                <strong>{room.id}</strong>. Samme telefon får kortet sitt automatisk tilbake. Hvis
+                de byttet nettleser, kan du overføre plassen deres under uten å avbryte runden.
+              </p>
+
+              {isSimultaneousTeams ? (
+                <div className="reconnect-qr-grid">
+                  {room.teams.map((team) => (
+                    <div
+                      key={team.id}
+                      className="reconnect-qr-card"
+                      style={{ borderTop: `5px solid ${team.color}` }}
+                    >
+                      <strong style={{ color: team.color, fontSize: '0.9375rem' }}>
+                        {team.name}
+                      </strong>
+                      <div className="qr-frame" style={{ padding: '8px' }}>
+                        <QRCodeSVG
+                          value={getTeamJoinUrl(team.id)}
+                          size={128}
+                          level="M"
+                          bgColor="#FFFFFF"
+                          fgColor="#18181B"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div
+                  className="surface--subtle row"
+                  style={{ justifyContent: 'center', gap: 'var(--space-5)', flexWrap: 'wrap' }}
+                >
+                  <div className="qr-frame" style={{ padding: '10px' }}>
+                    <QRCodeSVG
+                      value={joinUrl}
+                      size={156}
+                      level="M"
+                      bgColor="#FFFFFF"
+                      fgColor="#18181B"
+                    />
+                  </div>
+                  <div className="stack-xs" style={{ alignItems: 'center' }}>
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.1em',
+                        color: 'var(--ink-muted)',
+                      }}
+                    >
+                      Romkode
+                    </span>
+                    <div className="room-code-big" data-selectable="true">
+                      {room.id}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {room.status === 'playing' && waitingPlayersWithoutCard.length > 0 && (
+                <div className="stack-sm">
+                  <div className="row-between">
+                    <h3 style={{ fontSize: '1.0625rem' }}>
+                      Tilkoblede mobiler som venter på kort ({waitingPlayersWithoutCard.length})
+                    </h3>
+                    <span className="badge">Kort holdes skjult</span>
+                  </div>
+
+                  {waitingPlayersWithoutCard.map((waitingPlayer, wIdx) => {
+                    const waitingTeam = isSimultaneousTeams
+                      ? room.teams.find((t) => t.id === waitingPlayer.teamId) ?? null
+                      : null;
+
+                    const candidateSlots = players
+                      .filter(
+                        (p) =>
+                          p.card !== null &&
+                          p.uid !== waitingPlayer.uid &&
+                          (!isSimultaneousTeams ||
+                            !waitingPlayer.teamId ||
+                            p.teamId === waitingPlayer.teamId)
+                      )
+                      // Vis ulåste plasser først (mest sannsynlig den som falt ut)
+                      .sort((a, b) => {
+                        const aLocked = a.lockedAt ? 1 : 0;
+                        const bLocked = b.lockedAt ? 1 : 0;
+                        return aLocked - bLocked;
+                      });
+
+                    return (
+                      <div
+                        key={waitingPlayer.uid}
+                        className="surface--subtle stack-sm"
+                        style={{
+                          borderLeft: waitingTeam
+                            ? `5px solid ${waitingTeam.color}`
+                            : '5px solid var(--accent)',
+                        }}
+                      >
+                        <div className="row-between" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                          <div className="row" style={{ gap: '8px' }}>
+                            <Smartphone size={16} aria-hidden="true" />
+                            <strong>Ny tilkobling #{wIdx + 1}</strong>
+                            {waitingTeam && (
+                              <span
+                                className="team-pill"
+                                style={{
+                                  backgroundColor: waitingTeam.color,
+                                  color: '#ffffff',
+                                }}
+                              >
+                                {waitingTeam.name}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn--secondary"
+                            style={{ minHeight: '30px', padding: '2px 10px', fontSize: '0.8125rem' }}
+                            onClick={() => handleRemovePlayer(waitingPlayer.uid)}
+                            disabled={actionBusy !== null}
+                          >
+                            <X size={14} aria-hidden="true" />
+                            <span>Fjern</span>
+                          </button>
+                        </div>
+
+                        {candidateSlots.length > 0 ? (
+                          <div className="stack-xs">
+                            <span style={{ fontSize: '0.8125rem', color: 'var(--ink-muted)' }}>
+                              Overfør aktivt kort fra frafalt spiller (eller la stå til neste runde):
+                            </span>
+                            <div className="row" style={{ flexWrap: 'wrap', gap: '8px' }}>
+                              {candidateSlots.map((slot, sIdx) => {
+                                const isLocked = slot.lockedAt !== null;
+                                return (
+                                  <button
+                                    key={slot.uid}
+                                    type="button"
+                                    className={`btn ${isLocked ? 'btn--secondary' : 'btn--primary'}`}
+                                    style={{
+                                      minHeight: '36px',
+                                      padding: '6px 12px',
+                                      fontSize: '0.8125rem',
+                                    }}
+                                    onClick={() => handleReassignCard(slot, waitingPlayer)}
+                                    disabled={actionBusy !== null}
+                                  >
+                                    <span>
+                                      Overfør fra Spiller {sIdx + 1}{' '}
+                                      {isLocked ? '(låst)' : '(ikke låst)'}
+                                    </span>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ) : (
+                          <span style={{ fontSize: '0.8125rem', color: 'var(--ink-muted)' }}>
+                            Blir automatisk med fra neste runde.
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </main>

@@ -434,11 +434,11 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
             >
               <Hourglass size={40} color="var(--accent)" aria-hidden="true" />
               <h1 style={{ fontSize: '1.5rem' }}>
-                Runde pågår — du får kort i neste runde
+                Tilkoblet — venter på kort
               </h1>
               <p style={{ color: 'var(--ink-secondary)' }}>
-                Hold denne siden åpen, så deles det automatisk ut et kort til deg når
-                verten starter neste runde.
+                Falt du ut av runden? Be spillmesteren gi deg tilbake kortet ditt via
+                «Koble til spiller». Ellers blir du automatisk med fra neste runde!
               </p>
             </div>
           ) : (

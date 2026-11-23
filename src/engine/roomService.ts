@@ -469,6 +469,48 @@ export async function removePlayerFromRoom(
 }
 
 /**
+ * Overfører atomisk aktivt kort, låsestatus og lagtilhørighet fra en frafalt spillerøkt
+ * til en nyoppkoblet telefon, og sletter den gamle spøkelsesøkten.
+ */
+export async function reassignPlayerCard(
+  roomId: string,
+  fromPlayer: PlayerDoc,
+  toPlayerUid: string,
+  preserveTargetTeamId?: string | null,
+): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return;
+  }
+  if (fromPlayer.uid === toPlayerUid) {
+    return;
+  }
+
+  const normalizedRoomId = normalizeRoomId(roomId);
+  const db = requireFirestore();
+  const batch = writeBatch(db);
+
+  const targetRef = doc(db, 'rooms', normalizedRoomId, 'players', toPlayerUid);
+  const oldRef = doc(db, 'rooms', normalizedRoomId, 'players', fromPlayer.uid);
+  const roomRef = doc(db, 'rooms', normalizedRoomId);
+
+  const resolvedTeamId = preserveTargetTeamId ?? fromPlayer.teamId ?? null;
+
+  batch.update(targetRef, {
+    card: fromPlayer.card,
+    lockedAt: fromPlayer.lockedAt ?? null,
+    lockedClientAt: fromPlayer.lockedClientAt ?? null,
+    ...(resolvedTeamId ? { teamId: resolvedTeamId } : {}),
+    connected: true,
+  });
+  batch.delete(oldRef);
+  batch.update(roomRef, {
+    updatedAt: serverTimestamp(),
+  });
+
+  await batch.commit();
+}
+
+/**
  * Avslutter og sletter rommet fullstendig slik at spillmester kan starte et helt nytt spill/rom.
  */
 export async function closeRoom(

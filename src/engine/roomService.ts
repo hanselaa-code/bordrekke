@@ -152,6 +152,32 @@ export async function joinRoomAsPlayer(
   });
 }
 
+/**
+ * Lar en spiller bytte eller velge lag direkte fra egen mobil i lobbyen
+ * (slik at feilskannet QR-kode eller manuell romkode fikses med ett trykk).
+ */
+export async function updatePlayerTeam(
+  roomId: string,
+  playerUid: string,
+  teamId: string,
+): Promise<void> {
+  if (!isFirebaseConfigured) {
+    return p2pJoinRoomAsPlayer(roomId, playerUid, teamId);
+  }
+
+  const normalizedRoomId = normalizeRoomId(roomId);
+  const normalizedTeamId = teamId.trim().slice(0, 64);
+  if (!normalizedRoomId || !normalizedTeamId) {
+    return;
+  }
+
+  const db = requireFirestore();
+  await updateDoc(doc(db, 'rooms', normalizedRoomId, 'players', playerUid), {
+    teamId: normalizedTeamId,
+    connected: true,
+  });
+}
+
 export interface StartRoundOptions {
   gameMode?: GameMode;
   teams?: readonly TeamConfig[];

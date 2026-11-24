@@ -341,10 +341,12 @@ export function HostView() {
 
     for (const group of byDevice.values()) {
       if (group.length <= 1) continue;
-      // Behold den nyeste økten (den som faktisk er åpen på telefonen nå)
+      // Behold den nyeste økten (den som faktisk er åpen på telefonen nå).
+      // Merk: En helt ny tilkobling kan ha joinedAt === null mens serverTimestamp() ventes,
+      // derfor behandles null som NYEST (MAX_SAFE_INTEGER) slik at den aldri slettes ved feil!
       const sorted = [...group].sort((a, b) => {
-        const aTime = a.joinedAt?.toMillis() ?? 0;
-        const bTime = b.joinedAt?.toMillis() ?? 0;
+        const aTime = a.joinedAt?.toMillis() ?? Number.MAX_SAFE_INTEGER;
+        const bTime = b.joinedAt?.toMillis() ?? Number.MAX_SAFE_INTEGER;
         return bTime - aTime;
       });
       const newest = sorted[0];
@@ -475,6 +477,12 @@ export function HostView() {
   const waitingPlayersWithoutCard = useMemo(() => {
     if (!room || room.status !== 'playing') return [];
     return players.filter((p) => p.card === null);
+  }, [room, players]);
+
+  const unassignedTeamPlayers = useMemo(() => {
+    if (!room || room.gameMode !== 'teams-simultaneous') return [];
+    const validTeamIds = new Set(room.teams.map((t) => t.id));
+    return players.filter((p) => !p.teamId || !validTeamIds.has(p.teamId));
   }, [room, players]);
 
   const winnerTeams = useMemo(() => {
@@ -791,6 +799,18 @@ export function HostView() {
                 </div>
 
                 <div className="surface stack-sm">
+                  {unassignedTeamPlayers.length > 0 && (
+                    <div className="alert" role="status">
+                      <span>
+                        <strong>
+                          {unassignedTeamPlayers.length}{' '}
+                          {unassignedTeamPlayers.length === 1 ? 'mobil' : 'mobiler'}
+                        </strong>{' '}
+                        har ikke valgt lag ennå — de kan trykke på riktig lag direkte på sin egen
+                        mobil før du starter!
+                      </span>
+                    </div>
+                  )}
                   <button
                     type="button"
                     className="btn btn--primary btn--lg btn--full"

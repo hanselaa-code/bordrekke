@@ -13,6 +13,7 @@ import {
   joinRoomAsPlayer,
   lockPlayerPosition,
   unlockPlayerPosition,
+  updatePlayerTeam,
 } from '../engine/roomService';
 import { useRoom } from '../hooks/useRoom';
 import { useWakeLock } from '../hooks/useWakeLock';
@@ -37,6 +38,8 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
   );
   const [joinError, setJoinError] = useState<string | null>(null);
   const [lockBusy, setLockBusy] = useState(false);
+  const [switchingTeam, setSwitchingTeam] = useState(false);
+  const [showTeamSwitcher, setShowTeamSwitcher] = useState(false);
   const [revealedRoundKey, setRevealedRoundKey] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
 
@@ -78,6 +81,13 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
   }, [normalizedRoomId, requestedTeamId, retryCount]);
 
   const rawMyPlayer = players.find((p) => p.uid === playerUid);
+  const isRemovedFromRoom =
+    !loading &&
+    !joining &&
+    room !== null &&
+    playerUid !== null &&
+    joinedRoomId === normalizedRoomId &&
+    rawMyPlayer === undefined;
   const myTeamId = rawMyPlayer?.teamId ?? requestedTeamId;
   const isSimultaneousTeams = room?.gameMode === 'teams-simultaneous';
   const isTurnTeams = room?.gameMode === 'teams-turn';
@@ -140,6 +150,40 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
       }
     }
   }, [isMyRevealReady, currentRevealKey, myCard, myEntry?.isCorrect]);
+
+  async function handleSelectTeam(nextTeamId: string) {
+    if (!room || !playerUid || switchingTeam) return;
+    setSwitchingTeam(true);
+    setJoinError(null);
+    try {
+      await updatePlayerTeam(room.id, playerUid, nextTeamId);
+      setShowTeamSwitcher(false);
+    } catch (err) {
+      console.error('Lagbytte feilet:', err);
+      setJoinError('Kunne ikke bytte lag. Prøv igjen.');
+    } finally {
+      setSwitchingTeam(false);
+    }
+  }
+
+  // Gjenopprett tilkobling automatisk når mobilen våkner fra dvale eller får nett tilbake
+  useEffect(() => {
+    if (!normalizedRoomId || !playerUid || typeof document === 'undefined') return;
+
+    function handleResume() {
+      if (document.visibilityState === 'visible' && isRemovedFromRoom) {
+        setJoinedRoomId(null);
+        setRetryCount((c) => c + 1);
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleResume);
+    window.addEventListener('online', handleResume);
+    return () => {
+      document.removeEventListener('visibilitychange', handleResume);
+      window.removeEventListener('online', handleResume);
+    };
+  }, [normalizedRoomId, playerUid, isRemovedFromRoom]);
 
   async function handleLock() {
     if (!room || !playerUid || lockBusy) return;
@@ -385,7 +429,39 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
         </section>
       )}
 
-      {!loading && !joining && room && room.status === 'lobby' && (
+      {isRemovedFromRoom && room && (
+        <section
+          className="surface stack-md"
+          style={{
+            margin: 'auto 0',
+            textAlign: 'center',
+            padding: 'var(--space-8) var(--space-6)',
+            alignItems: 'center',
+          }}
+          role="alert"
+        >
+          <span className="badge">Frakoblet</span>
+          <h1 style={{ fontSize: '1.625rem' }}>Du ble koblet fra rommet</h1>
+          <p style={{ color: 'var(--ink-secondary)' }}>
+            Trykk på knappen under for å koble mobilen din inn i rom{' '}
+            <strong>{room.id}</strong> igjen.
+          </p>
+          <button
+            type="button"
+            className="btn btn--primary btn--lg btn--full"
+            onClick={() => {
+              setJoinError(null);
+              setJoinedRoomId(null);
+              setRetryCount((c) => c + 1);
+            }}
+          >
+            <RotateCcw size={20} aria-hidden="true" />
+            <span>Bli med på nytt</span>
+          </button>
+        </section>
+      )}
+
+      {!loading && !joining && !isRemovedFromRoom && room && room.status === 'lobby' && (
         <section
           className="surface stack-lg"
           style={{
@@ -396,31 +472,103 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
           }}
           aria-live="polite"
         >
-          <span className="badge badge--success">Tilkoblet</span>
+          {isSimultaneousTeams && !myTeam ? (
+            <>
+              <span className="badge badge--accent">Velg lag</span>
+              <div className="stack-xs">
+                <h1 style={{ fontSize: '1.75rem' }}>Hvilket lag er du på?</h1>
+                <p style={{ color: 'var(--ink-secondary)', fontSize: '1rem' }}>
+                  Trykk på laget ditt under slik at du får kort når spillet starter!
+                </p>
+              </div>
+              <div className="stack-sm" style={{ width: '100%' }}>
+                {room.teams.map((team) => (
+                  <button
+                    key={team.id}
+                    type="button"
+                    className="btn btn--lg btn--full"
+                    style={{
+                      backgroundColor: team.color,
+                      color: '#ffffff',
+                      borderColor: team.color,
+                    }}
+                    onClick={() => handleSelectTeam(team.id)}
+                    disabled={switchingTeam}
+                  >
+                    <span>{switchingTeam ? 'Velger lag…' : team.name}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <>
+              <span className="badge badge--success">Tilkoblet</span>
 
-          <div className="stack-xs">
-            <h1 style={{ fontSize: '1.875rem' }}>Du er med i rommet!</h1>
-            <p style={{ color: 'var(--ink-secondary)', fontSize: '1rem' }}>
-              Venter på at verten starter runden…
-            </p>
-          </div>
+              <div className="stack-xs">
+                <h1 style={{ fontSize: '1.875rem' }}>Du er med i rommet!</h1>
+                <p style={{ color: 'var(--ink-secondary)', fontSize: '1rem' }}>
+                  Venter på at verten starter runden…
+                </p>
+              </div>
 
-          <div className="surface--subtle row" style={{ justifyContent: 'center' }}>
-            <Users size={18} color="var(--ink-secondary)" aria-hidden="true" />
-            <span className="tabular" style={{ fontWeight: 700 }}>
-              {isSimultaneousTeams && myTeam
-                ? `${activeEvaluation.totalPlayers} ${activeEvaluation.totalPlayers === 1 ? 'spiller' : 'spillere'} på ${myTeam.name}`
-                : `${players.length} ${players.length === 1 ? 'spiller' : 'spillere'} i lobbyen`}
-            </span>
-          </div>
+              <div className="surface--subtle row" style={{ justifyContent: 'center' }}>
+                <Users size={18} color="var(--ink-secondary)" aria-hidden="true" />
+                <span className="tabular" style={{ fontWeight: 700 }}>
+                  {isSimultaneousTeams && myTeam
+                    ? `${activeEvaluation.totalPlayers} ${activeEvaluation.totalPlayers === 1 ? 'spiller' : 'spillere'} på ${myTeam.name}`
+                    : `${players.length} ${players.length === 1 ? 'spiller' : 'spillere'} i lobbyen`}
+                </span>
+              </div>
 
-          <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
-            Legg mobilen på bordet foran deg. Skjermen holdes våken mens spillet pågår.
-          </p>
+              {isSimultaneousTeams && room.teams.length > 1 && (
+                <div className="stack-sm" style={{ width: '100%' }}>
+                  <button
+                    type="button"
+                    className="btn btn--secondary btn--full"
+                    onClick={() => setShowTeamSwitcher((v) => !v)}
+                    disabled={switchingTeam}
+                  >
+                    <span>{showTeamSwitcher ? 'Avbryt lagbytte' : 'Feil lag? Bytt lag her'}</span>
+                  </button>
+
+                  {showTeamSwitcher && (
+                    <div className="stack-xs" style={{ width: '100%' }}>
+                      {room.teams.map((team) => {
+                        const isCurrent = team.id === myTeam?.id;
+                        return (
+                          <button
+                            key={team.id}
+                            type="button"
+                            className="btn btn--full"
+                            style={{
+                              backgroundColor: isCurrent ? 'var(--bg-subtle)' : team.color,
+                              color: isCurrent ? 'var(--ink-muted)' : '#ffffff',
+                              borderColor: team.color,
+                            }}
+                            onClick={() => handleSelectTeam(team.id)}
+                            disabled={switchingTeam || isCurrent}
+                          >
+                            <span>
+                              {team.name}
+                              {isCurrent ? ' (ditt lag nå)' : ''}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <p style={{ fontSize: '0.875rem', color: 'var(--ink-muted)' }}>
+                Legg mobilen på bordet foran deg. Skjermen holdes våken mens spillet pågår.
+              </p>
+            </>
+          )}
         </section>
       )}
 
-      {!loading && !joining && room && room.status === 'playing' && (
+      {!loading && !joining && !isRemovedFromRoom && room && room.status === 'playing' && (
         <section className="player-stage" aria-label="Aktivt spillkort">
           {!myCard ? (
             <div
@@ -434,12 +582,35 @@ export function PlayerView({ initialPlayerUid }: PlayerViewProps = {}) {
             >
               <Hourglass size={40} color="var(--accent)" aria-hidden="true" />
               <h1 style={{ fontSize: '1.5rem' }}>
-                Tilkoblet — venter på kort
+                {isSimultaneousTeams && !myTeam
+                  ? 'Velg laget ditt først!'
+                  : 'Tilkoblet — venter på kort'}
               </h1>
               <p style={{ color: 'var(--ink-secondary)' }}>
-                Falt du ut av runden? Be spillmesteren gi deg tilbake kortet ditt via
-                «Koble til spiller». Ellers blir du automatisk med fra neste runde!
+                {isSimultaneousTeams && !myTeam
+                  ? 'Trykk på laget ditt under, så blir du automatisk med i neste runde (eller be spillmester gi deg tilbake kortet ditt).'
+                  : 'Falt du ut av runden? Be spillmesteren gi deg tilbake kortet ditt via «Koble til spiller». Ellers blir du automatisk med fra neste runde!'}
               </p>
+              {isSimultaneousTeams && !myTeam && (
+                <div className="stack-xs" style={{ width: '100%' }}>
+                  {room.teams.map((team) => (
+                    <button
+                      key={team.id}
+                      type="button"
+                      className="btn btn--lg btn--full"
+                      style={{
+                        backgroundColor: team.color,
+                        color: '#ffffff',
+                        borderColor: team.color,
+                      }}
+                      onClick={() => handleSelectTeam(team.id)}
+                      disabled={switchingTeam}
+                    >
+                      <span>{switchingTeam ? 'Velger lag…' : team.name}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           ) : (
             <>

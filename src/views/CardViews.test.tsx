@@ -21,6 +21,7 @@ vi.mock('../engine/roomService', () => ({
   joinRoomAsPlayer: vi.fn(),
   lockPlayerPosition: vi.fn(),
   unlockPlayerPosition: vi.fn(),
+  updatePlayerTeam: vi.fn(),
   reassignPlayerCard: vi.fn(),
   resetAllLocks: vi.fn(),
   returnToLobby: vi.fn(),
@@ -233,5 +234,39 @@ describe('CardViews SSR rendering (PlayerView & HostView)', () => {
 
     expect(html).toContain('Koble til spiller');
     expect(html).toContain('(1 venter)');
+  });
+
+  it('PlayerView (lobby): viser tydelig «Du ble koblet fra rommet» + «Bli med på nytt» hvis verten slettet spilleren', () => {
+    const state = buildRoomState('lobby', [moonCard]);
+    state.players = []; // Spilleren ble fjernet av spillmester
+    mockUseRoom.mockReturnValue(state);
+
+    const html = renderPlayer('player-1');
+
+    expect(html).toContain('Du ble koblet fra rommet');
+    expect(html).toContain('Bli med på nytt');
+    expect(html).not.toContain('Du er med i rommet!');
+  });
+
+  it('PlayerView (lobby, lagmodus): viser lagvelger hvis spiller mangler lag, og «Feil lag? Bytt lag her» når spiller har lag', () => {
+    const noTeamState = buildRoomState('lobby', [moonCard]);
+    noTeamState.room!.gameMode = 'teams-simultaneous';
+    noTeamState.room!.teams = [
+      { id: 'team-1', name: 'Lag Blå', color: '#2563EB', score: 0 },
+      { id: 'team-2', name: 'Lag Rød', color: '#DC2626', score: 0 },
+    ];
+    noTeamState.players[0].teamId = null;
+    mockUseRoom.mockReturnValue(noTeamState);
+
+    const htmlNoTeam = renderPlayer('player-1');
+    expect(htmlNoTeam).toContain('Hvilket lag er du på?');
+    expect(htmlNoTeam).toContain('Lag Blå');
+    expect(htmlNoTeam).toContain('Lag Rød');
+
+    noTeamState.players[0].teamId = 'team-1';
+    mockUseRoom.mockReturnValue(noTeamState);
+
+    const htmlWithTeam = renderPlayer('player-1');
+    expect(htmlWithTeam).toContain('Feil lag? Bytt lag her');
   });
 });

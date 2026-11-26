@@ -769,6 +769,50 @@ describe('Vekt på dyr (MOCK_ROUNDS[16])', () => {
   });
 });
 
+describe('Lengst fengselsstraff blant kjente nordmenn (MOCK_ROUNDS[17])', () => {
+  const prisonRound = MOCK_ROUNDS[17];
+
+  it('ligger som runde 18 i kategorien Lett blanding med 6 kjente nordmenn og retning Kortest → Lengst', () => {
+    expect(prisonRound.id).toBe('norwegian-prison-sentences-1');
+    expect(prisonRound.category).toBe('Lett blanding');
+    expect(prisonRound.title).toBe('Lengst fengselsstraff blant kjente nordmenn');
+    expect(prisonRound.directionLabel).toBe('Kortest → Lengst');
+    expect(prisonRound.cards).toHaveLength(6);
+  });
+
+  it('har strengt stigende, unike straffelengder og lekkasjesikrede felt uten sifre', () => {
+    const months = prisonRound.cards.map((card) => card.answerValue);
+    expect(new Set(months).size).toBe(6);
+    expect(new Set(prisonRound.cards.map((card) => card.id)).size).toBe(6);
+
+    for (let i = 1; i < months.length; i += 1) {
+      expect(months[i]).toBeGreaterThan(months[i - 1]);
+    }
+
+    for (const card of prisonRound.cards) {
+      expect(Number.isInteger(card.answerValue)).toBe(true);
+      expect(card.answerValue).toBeGreaterThan(0);
+      expect(card.label).not.toMatch(/\d/);
+      expect(card.subtitle).not.toMatch(/\d/);
+      expect(card.imageAlt).not.toMatch(/\d/);
+      expect(card.imageUrl).toMatch(/^\.\/images\/prison\/[a-z-]+\.jpg$/);
+    }
+  });
+
+  it('peker til eksisterende, ikke-tomme bildefiler under public/images/prison/', () => {
+    const publicDir = resolve(process.cwd(), 'public');
+
+    for (const card of prisonRound.cards) {
+      const relativeAssetPath = (card.imageUrl ?? '').replace(/^\.\//, '');
+      const fullPath = resolve(publicDir, relativeAssetPath);
+      const stats = statSync(fullPath);
+
+      expect(stats.isFile()).toBe(true);
+      expect(stats.size).toBeGreaterThan(1024);
+    }
+  });
+});
+
 describe('Kategorier (ROUND_CATEGORIES)', () => {
   it('har alle 8 kategorier og hver runde tilhører en gyldig kategori', () => {
     expect(ROUND_CATEGORIES).toEqual([
